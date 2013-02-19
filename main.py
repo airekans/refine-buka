@@ -9,7 +9,7 @@ def refine(file_name,output_dir):
     if not os.path.isdir(output_dir):
         print(USAGE)
         raise IOError('output dir `%s` not found' %output_dir)
-    with open(file_name) as f:
+    with open(file_name, 'rb') as f:
         buff = f.read(10000)
         toc = re.findall(r'\x00([\x00-\xff]{8})[-_a-zA-Z0-9]*(\d{4}\.jpg)',buff)
         for index in toc:
