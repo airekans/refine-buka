@@ -1,8 +1,22 @@
-refine-buka
-===========
+布卡漫画下载文件提取工具
+====================
+从布卡下载文件中抽取出漫画图片，并自动重命名其文件夹。
 
-从布卡文件中抽取出漫画图片
+## 功能
+支持提取布卡漫画现有的多种格式（包括.buka，.jpg.view，.bup.view），保存为普通图片，并自动对文件夹重命名为漫画名和卷名。
 
-##使用方法
-    python2 main.py INPUT_DIR OUTPUT_DIR
+## 用法
+请先将安卓手机中的漫画文件夹（/sdcard/ibuka/down）复制到硬盘再操作。
 
+请先下载 `buka.py` ， `dwebp.exe` (Windows) 或 `dwebp` (Linux)。
+
+切换到程序所在的文件夹，命令行：
+
+    python3 buka.py INPUT_DIR_or_BUKA_FILE \[OUTPUT_DIR\]
+
+然后就可以使用各种图片浏览器、漫画阅读器欣赏漫画。
+
+### 原版
+作者对.buka解析的源文件保留在此。运行 `buka.py` 时无需原版。
+
+    python2 refbuka.py INPUT_DIR OUTPUT_DIR
