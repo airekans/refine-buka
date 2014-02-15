@@ -7,12 +7,12 @@
 漫画目录 存放在 /sdcard/ibuka/down
 '''
 
-import sys,os,shutil,time,json
+import sys,os,shutil,time,json,re,struct
 from subprocess import Popen
 
 helpm = '''Extract mangas downloaded by Buka.
 
-usage: buka.py input [output]
+usage: python3 buka.py input [output]
 
 positional argument:
  input       the .buka file or a directory contains downloaded files.
@@ -22,22 +22,22 @@ optional argument:
  output      the target directory.(=the current dir.)
 '''
 
-if len(sys.argv)<2:
-	print(helpm)
-	sys.exit()
-elif len(sys.argv)==2:
+if len(sys.argv)==2:
 	target = os.path.join(os.path.dirname(sys.argv[1]),"output")
 	if not os.path.exists(target):
 		os.mkdir(target)
+elif len(sys.argv)==3:
+	target = sys.argv[2]
 else:
-	target = sys.argv[2] #'d:\\'
+	print(helpm)
+	sys.exit()
 
-fn_buka = sys.argv[1] #"d:\\131126.buka"
+fn_buka = sys.argv[1]
 
 if os.name=='nt':
 	dwebp = 'dwebp.exe'
 else:
-	dwebp = 'dwebp'
+	dwebp = './dwebp'
 
 #JPG
 #開頭 FFD8
@@ -81,43 +81,18 @@ def renamef(chap,cid):
 
 
 def extractbuka(bkname, tgdir):
-	out = None
-	i = 1
 	if not os.path.exists(tgdir):
 		os.mkdir(tgdir)
-	with open(bkname, "rb") as f:
-		byte = f.read(1)
-		while byte:
-			# begin
-			if ord(byte) == 0xff:
-				b2 = f.read(1)
-				if ord(b2) == 0xd8:
-					fn = os.path.join(tgdir, '%03d.jpg' % i)
-					print('Extracting %s' % fn)
-					out = open(fn, 'wb')
-					out.write(b'\xff\xd8')
-					i+=1
-					#print 'start'
-				elif ord(b2) == 0xd9:
-					out.write(b'\xff\xd9')
-					out.close()
-					out = None
-					#print 'close'
-					#break
-				else:
-					if not out is None:
-						out.write(byte)
-						out.write(b2)
-						#print 'write'
-				byte = f.read(1)
-				continue
-			else:
-				if not out is None:
-					out.write(byte)
-					#print 'write #2'
-			byte = f.read(1)
-	if not out is None:
-		out.close()
+	with open(bkname, 'rb') as f:
+		buff = f.read(16384)
+		toc = re.findall(br'\x00([\x00-\xff]{8})[-_a-zA-Z0-9]*(\d{4}\.jpg)',buff)
+		for index in toc:
+			pos, size = struct.unpack('<II', index[0])
+			img = open(os.path.join(tgdir,index[1].decode(encoding='UTF-8')),'wb')
+			f.seek(pos)
+			data = f.read(size)
+			img.write(data)
+			img.close()
 
 if os.path.isdir(target):
 	if os.path.splitext(fn_buka)[1]==".buka":
