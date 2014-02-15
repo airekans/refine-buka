@@ -5,6 +5,10 @@ import sys
 import time
 import json
 
+USAGE = """
+    python refine.py INPUT_DIR OUTPUT_DIR
+"""
+
 def refine(file_name,output_dir):
     if not os.path.isdir(output_dir):
         print(USAGE)
@@ -28,12 +32,6 @@ def extract_dir(input_dir, output_dir):
             os.mkdir(image_dir_path)
         refine(os.path.join(input_dir,buka_fn), image_dir_path)
 
-
-
-USAGE = """
-    python refine.py INPUT_DIR OUTPUT_DIR
-"""
-
 if __name__ == '__main__':
     if len(sys.argv) != 3:
         print(USAGE)
@@ -41,7 +39,3 @@ if __name__ == '__main__':
         print time.strftime('%H:%M:%S')
         extract_dir(sys.argv[1], sys.argv[2])
         print time.strftime('%H:%M:%S')
-
-
-
-
