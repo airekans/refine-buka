@@ -12,9 +12,9 @@
 
     chmod +x dwebp
 
-切换到程序所在的文件夹，命令行：
+切换到程序所在的文件夹，命令行：（可省略输出路径，默认为与输入文件夹同目录下的output）
 
-    python3 buka.py INPUT_DIR_or_BUKA_FILE \[OUTPUT_DIR\]
+    python3 buka.py INPUT_DIR_or_BUKA_FILE [OUTPUT_DIR]
 
 然后就可以使用各种图片浏览器、漫画阅读器欣赏漫画。
 
