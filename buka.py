@@ -12,7 +12,7 @@ from subprocess import Popen
 
 helpm = '''Extract mangas downloaded by Buka.
 
-usage: python3 buka.py input [output]
+usage: python3 %s input [output]
 
 positional argument:
  input       the .buka file or a directory contains downloaded files.
@@ -20,7 +20,7 @@ positional argument:
 
 optional argument:
  output      the target directory.(=the current dir.)
-'''
+''' % sys.argv[0]
 
 if len(sys.argv)==2:
 	target = os.path.join(os.path.dirname(sys.argv[1]),"output")
