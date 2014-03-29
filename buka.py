@@ -1,6 +1,6 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Python 3.3 compatible with Python 2.7
+# Python 3.x
 '''
 布卡漫画转换工具
 支持 .buka, .bup.view, .jpg.view
@@ -23,10 +23,18 @@ optional argument:
  output      the target directory.(=the current dir.)
 ''' % sys.argv[0]
 
+if sys.version_info[0] < 3:
+	print('Python 3 required.')
+	sys.exit()
+
 if len(sys.argv)==2:
-	target = os.path.join(os.path.dirname(sys.argv[1]),"output")
-	if not os.path.exists(target):
-		os.mkdir(target)
+	if sys.argv[1] in ("-h", "--help"):
+		print(helpm)
+		sys.exit()
+	else:
+		target = os.path.join(os.path.dirname(sys.argv[1]),"output")
+		if not os.path.exists(target):
+			os.mkdir(target)
 elif len(sys.argv)==3:
 	target = sys.argv[2]
 else:
@@ -39,10 +47,6 @@ if os.name=='nt':
 	dwebp = 'dwebp.exe'
 else:
 	dwebp = './dwebp'
-
-#JPG
-#開頭 FFD8
-#結尾 FFD9
 
 def copytree(src, dst, symlinks=False, ignore=None):
 	if not os.path.exists(dst):
@@ -70,22 +74,30 @@ def renamef(chap,cid):
 			return chap[cid]['title']
 		else:
 			if chap[cid]['type']=='0':
-				return u'卷'+ chap[cid]['idx'].zfill(2)
+				return '卷'+ chap[cid]['idx'].zfill(2)
 			elif chap[cid]['type']=='1':
-				return u'第'+ chap[cid]['idx'].zfill(3)+ u'话'
+				return '第'+ chap[cid]['idx'].zfill(3)+ '话'
 			elif chap[cid]['type']=='2':
-				return u'番外'+ chap[cid]['idx'].zfill(2)
+				return '番外'+ chap[cid]['idx'].zfill(2)
 			else:
 				return chap[cid]['idx'].zfill(3)
 	else:
 		return cid
 
-
 def extractbuka(bkname, tgdir):
+	if not os.path.isfile(bkname):
+		print('No such file: ' + bkname)
+		return ''
 	if not os.path.exists(tgdir):
 		os.mkdir(tgdir)
+	toc = []
+	name = ''
 	with open(bkname, 'rb') as f:
 		buff = f.read(16384)
+		try:
+			name = buff[20:buff.find(b'\x00',20)].decode(errors='ignore')
+		except:
+			name = ''
 		toc = re.findall(br'\x00([\x00-\xff]{8})[-_a-zA-Z0-9]*(\d{4}\.jpg)',buff)
 		for index in toc:
 			pos, size = struct.unpack('<II', index[0])
@@ -94,10 +106,48 @@ def extractbuka(bkname, tgdir):
 			data = f.read(size)
 			img.write(data)
 			img.close()
+	if not toc:
+		# old method fallback
+		out = None
+		i = 1
+		with open(bkname, "rb") as f:
+			byte = f.read(1)
+			while byte:
+				if ord(byte) == 0xff:
+					b2 = f.read(1)
+					if ord(b2) == 0xd8:
+						fn = os.path.join(tgdir, '%03d.jpg' % i)
+						print('Extracting %s' % fn)
+						out = open(fn, 'wb')
+						out.write(b'\xff\xd8')
+						i+=1
+					elif ord(b2) == 0xd9:
+						out.write(b'\xff\xd9')
+						out.close()
+						out = None
+					else:
+						if not out is None:
+							out.write(byte)
+							out.write(b2)
+					byte = f.read(1)
+					continue
+				else:
+					if not out is None:
+						out.write(byte)
+				byte = f.read(1)
+		if not out is None:
+			out.close()
+	return name
 
 if os.path.isdir(target):
 	if os.path.splitext(fn_buka)[1]==".buka":
-		extractbuka(fn_buka,target)
+		if not os.path.isfile(fn_buka):
+			print('No such file: ' + fn_buka)
+			if not os.listdir(target):
+				os.rmdir(target)
+			sys.exit()
+		bname = extractbuka(fn_buka,target)
+		shutil.move(target, os.path.join(os.path.dirname(target),bname))
 	else:
 		if os.path.isdir(fn_buka):
 			print('Copying...')
@@ -108,7 +158,7 @@ if os.path.isdir(target):
 				for name in files:
 					allfile.append(os.path.join(root,name))
 			for fpath in allfile:
-				print('Extracting %s' % fpath)
+				print(('Extracting %s' % fpath))
 				if os.path.splitext(fpath)[1]==".buka":
 					extractbuka(fpath,os.path.splitext(fpath)[0])
 					os.remove(fpath)
@@ -123,7 +173,7 @@ if os.path.isdir(target):
 						webp.close()
 						os.remove(fpath)
 						p=Popen([dwebp, basepath + ".webp", "-o" ,os.path.splitext(basepath)[0] + ".png"], cwd=os.getcwd()) #.wait()  faster
-						time.sleep(0.25) #prevent creating too many dwebps
+						time.sleep(0.3) #prevent creating too many dwebp's
 						if not p.poll():
 							dwebps.append(p)
 					else:
@@ -142,6 +192,7 @@ if os.path.isdir(target):
 						os.remove(os.path.join(root,name))
 				for name in subFolders:
 					alldir.append((root,name))
+			alldir.append(os.path.split(target))
 			for dirname in alldir:
 				fpath = os.path.join(dirname[0],dirname[1])
 				if os.path.isfile(os.path.join(fpath,"chaporder.dat")):
