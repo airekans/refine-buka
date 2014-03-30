@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Python 3.x
+
+__version__ = 1.5
+
 '''
 布卡漫画转换工具
 支持 .buka, .bup.view, .jpg.view
@@ -84,60 +87,34 @@ def renamef(chap,cid):
 	else:
 		return cid
 
-def extractbuka(bkname, tgdir):
+def extractbuka(bkname, target):
 	if not os.path.isfile(bkname):
 		print('No such file: ' + bkname)
 		return ''
-	if not os.path.exists(tgdir):
-		os.mkdir(tgdir)
+	if not os.path.exists(target):
+		os.mkdir(target)
 	toc = []
-	name = ''
+	comicname = ''
 	with open(bkname, 'rb') as f:
 		buff = f.read(16384)
-		try:
-			name = buff[20:buff.find(b'\x00',20)].decode(errors='ignore')
-		except:
-			name = ''
-		toc = re.findall(br'\x00([\x00-\xff]{8})[-_a-zA-Z0-9]*(\d{4}\.jpg)',buff)
+		pos = buff.find(b'\x00',20)
+		comicname = buff[20:pos].decode(errors='ignore')
+		pos+=1
+		endhead = pos + struct.unpack('<I', buff[pos:pos+4])[0] - 1
+		pos+=4
+		while pos < endhead:
+			pointer, size = struct.unpack('<II', buff[pos:pos+8])
+			pos+=8
+			end = buff.find(b'\x00',pos)
+			name = buff[pos:end].decode(errors='ignore')
+			pos = end + 1
+			toc.append((pointer, size, name))
 		for index in toc:
-			pos, size = struct.unpack('<II', index[0])
-			img = open(os.path.join(tgdir,index[1].decode(encoding='UTF-8')),'wb')
-			f.seek(pos)
-			data = f.read(size)
+			img = open(os.path.join(target,index[2]),'wb')
+			f.seek(index[0])
+			data = f.read(index[1])
 			img.write(data)
 			img.close()
-	if not toc:
-		# old method fallback
-		out = None
-		i = 1
-		with open(bkname, "rb") as f:
-			byte = f.read(1)
-			while byte:
-				if ord(byte) == 0xff:
-					b2 = f.read(1)
-					if ord(b2) == 0xd8:
-						fn = os.path.join(tgdir, '%03d.jpg' % i)
-						print('Extracting %s' % fn)
-						out = open(fn, 'wb')
-						out.write(b'\xff\xd8')
-						i+=1
-					elif ord(b2) == 0xd9:
-						out.write(b'\xff\xd9')
-						out.close()
-						out = None
-					else:
-						if not out is None:
-							out.write(byte)
-							out.write(b2)
-					byte = f.read(1)
-					continue
-				else:
-					if not out is None:
-						out.write(byte)
-				byte = f.read(1)
-		if not out is None:
-			out.close()
-	return name
 
 if os.path.isdir(target):
 	if os.path.splitext(fn_buka)[1]==".buka":
@@ -146,65 +123,86 @@ if os.path.isdir(target):
 			if not os.listdir(target):
 				os.rmdir(target)
 			sys.exit()
-		bname = extractbuka(fn_buka,target)
-		shutil.move(target, os.path.join(os.path.dirname(target),bname))
+		print(('Extracting %s' % fn_buka))
+		extractbuka(fn_buka,target)
+		if os.path.isfile(os.path.join(target,"chaporder.dat")):
+			dat=json.loads(open(os.path.join(target,"chaporder.dat"),'r').read())
+			os.remove(os.path.join(target,"chaporder.dat"))
+			chap=build_dict(dat['links'],'cid')
+			newtarget = os.path.join(os.path.dirname(target),dat['name']+'-'+renamef(chap,os.path.splitext(fn_buka)[0]))
+			shutil.move(target,newtarget)
+			target = newtarget
+	elif os.path.isdir(fn_buka):
+		print('Copying...')
+		copytree(fn_buka, target)
 	else:
-		if os.path.isdir(fn_buka):
-			print('Copying...')
-			copytree(fn_buka, target)
-			allfile=[]
-			dwebps=[]
-			for root, subFolders, files in os.walk(target):
-				for name in files:
-					allfile.append(os.path.join(root,name))
-			for fpath in allfile:
+		print("Input must be a .buka file or a folder.")
+	allfile=[]
+	dwebps=[]
+	for root, subFolders, files in os.walk(target):
+		for name in files:
+			fpath = os.path.join(root,name)
+			if os.path.splitext(fpath)[1]==".buka":
 				print(('Extracting %s' % fpath))
-				if os.path.splitext(fpath)[1]==".buka":
-					extractbuka(fpath,os.path.splitext(fpath)[0])
-					os.remove(fpath)
-				elif os.path.splitext(fpath)[1]==".view":
-					basepath = os.path.splitext(os.path.splitext(fpath)[0])[0]
-					if os.path.splitext(os.path.splitext(fpath)[0])[1]==".bup":
-						bup = open(fpath, "rb")
-						webp = open(basepath + ".webp", "wb")
-						bup.read(64)
-						shutil.copyfileobj(bup, webp)
-						bup.close()
-						webp.close()
-						os.remove(fpath)
-						p=Popen([dwebp, basepath + ".webp", "-o" ,os.path.splitext(basepath)[0] + ".png"], cwd=os.getcwd()) #.wait()  faster
-						time.sleep(0.3) #prevent creating too many dwebp's
-						if not p.poll():
-							dwebps.append(p)
-					else:
-						shutil.move(fpath, os.path.splitext(fpath)[0])
-				else:
-					pass
-			print("Waiting for all dwebp's...")
-			for p in dwebps:
-				p.wait()
-			alldir=[]
-			print("Convertion done.")
-			print("Renaming...")
-			for root, subFolders, files in os.walk(target):
-				for name in files:
-					if os.path.splitext(name)[1]==".webp":
-						os.remove(os.path.join(root,name))
-				for name in subFolders:
-					alldir.append((root,name))
-			alldir.append(os.path.split(target))
-			for dirname in alldir:
-				fpath = os.path.join(dirname[0],dirname[1])
-				if os.path.isfile(os.path.join(fpath,"chaporder.dat")):
-					dat=json.loads(open(os.path.join(fpath,"chaporder.dat"),'r').read())
-					os.remove(os.path.join(fpath,"chaporder.dat"))
+				extractbuka(fpath,os.path.splitext(fpath)[0])
+				chaporder = os.path.join(os.path.splitext(fpath)[0], "chaporder.dat")
+				if os.path.isfile(chaporder):
+					dat=json.loads(open(chaporder,'r').read())
+					os.remove(chaporder)
 					chap=build_dict(dat['links'],'cid')
-					for item in os.listdir(fpath):
-						if os.path.isdir(os.path.join(fpath,item)):
-							shutil.move(os.path.join(fpath,item),os.path.join(fpath,renamef(chap,item)))
-					shutil.move(fpath,os.path.join(dirname[0],dat['name']))
-			print('Done.')
+					shutil.move(os.path.splitext(fpath)[0],os.path.join(os.path.dirname(fpath),renamef(chap,os.path.basename(os.path.splitext(fpath)[0]))))
+				os.remove(fpath)
+	for root, subFolders, files in os.walk(target):
+		for name in files:
+			allfile.append(os.path.join(root,name))
+	for fpath in allfile:
+		print(('Extracting %s' % fpath))
+		if os.path.splitext(fpath)[1] in (".view", ".bup"):
+			if os.path.splitext(fpath)[1]==".view":
+				bupname = os.path.splitext(fpath)[0]
+			else:
+				bupname = fpath
+			basepath = os.path.splitext(bupname)[0]
+			if os.path.splitext(bupname)[1]==".bup":
+				bup = open(fpath, "rb")
+				webp = open(basepath + ".webp", "wb")
+				bup.read(64) # and eat it
+				shutil.copyfileobj(bup, webp)
+				bup.close()
+				webp.close()
+				os.remove(fpath)
+				p=Popen([dwebp, basepath + ".webp", "-o" ,os.path.splitext(basepath)[0] + ".png"], cwd=os.getcwd()) #.wait()  faster
+				time.sleep(0.25) #prevent creating too many dwebp's
+				if not p.poll():
+					dwebps.append(p)
+			else:
+				shutil.move(fpath, bupname)
 		else:
-			print("Input must be a .buka file or a folder.")
+			pass
+	if dwebps:
+		print("Waiting for all dwebp's...")
+		for p in dwebps:
+			p.wait()
+	print("Convertion done.")
+	print("Renaming...")
+	alldir=[]
+	for root, subFolders, files in os.walk(target):
+		for name in files:
+			if os.path.splitext(name)[1]==".webp":
+				os.remove(os.path.join(root,name))
+		for name in subFolders:
+			alldir.append((root,name))
+	alldir.append(os.path.split(target))
+	for dirname in alldir:
+		fpath = os.path.join(dirname[0],dirname[1])
+		if os.path.isfile(os.path.join(fpath,"chaporder.dat")):
+			dat=json.loads(open(os.path.join(fpath,"chaporder.dat"),'r').read())
+			os.remove(os.path.join(fpath,"chaporder.dat"))
+			chap=build_dict(dat['links'],'cid')
+			for item in os.listdir(fpath):
+				if os.path.isdir(os.path.join(fpath,item)):
+					shutil.move(os.path.join(fpath,item),os.path.join(fpath,renamef(chap,item)))
+			shutil.move(fpath,os.path.join(dirname[0],dat['name']))
+	print('Done.')
 else:
 	print("Output put must be a folder.")
