@@ -11,7 +11,7 @@ __version__ = 1.5
 漫画目录 存放在 /sdcard/ibuka/down
 '''
 
-import sys,os,shutil,time,json,re,struct
+import sys, os, shutil, time, json, struct
 from subprocess import Popen
 
 helpm = '''Extract mangas downloaded by Buka.
@@ -23,7 +23,7 @@ positional argument:
              usually it's in (Android) /sdcard/ibuka/down
 
 optional argument:
- output      the target directory.(=the current dir.)
+ output      the target directory.(= the current dir.)
 ''' % sys.argv[0]
 
 if sys.version_info[0] < 3:
