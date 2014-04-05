@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # Python 3.x
 
-__version__ = 1.5
+__version__ = 1.55
 
 '''
 布卡漫画转换工具
@@ -51,6 +51,19 @@ if os.name=='nt':
 else:
 	dwebp = './dwebp'
 
+print("Checking environment...")
+try:
+	with open('NUL','w') as nul:
+		p = Popen(dwebp, stdout=nul, stderr=nul).wait()
+	if p==0:
+		supportwebp = True
+	else:
+		print("dwebp is not available, so only normal image files are supported.")
+		supportwebp = False
+except:
+	print("dwebp is not available, so only normal image files are supported.")
+	supportwebp = False
+
 def copytree(src, dst, symlinks=False, ignore=None):
 	if not os.path.exists(dst):
 		os.makedirs(dst)
@@ -62,7 +75,9 @@ def copytree(src, dst, symlinks=False, ignore=None):
 		if os.path.isdir(s):
 			copytree(s, d, symlinks, ignore)
 		else:
-			if not os.path.exists(d) or os.stat(src).st_mtime - os.stat(dst).st_mtime > 1:
+			if os.path.isfile(os.path.join(dst, os.path.splitext(item)[0])):
+				continue
+			elif not os.path.isfile(d) or os.stat(src).st_mtime - os.stat(dst).st_mtime > 1:
 				shutil.copy2(s, d)
 
 def build_dict(seq, key):
@@ -164,21 +179,23 @@ if os.path.isdir(target):
 				bupname = fpath
 			basepath = os.path.splitext(bupname)[0]
 			if os.path.splitext(bupname)[1]==".bup":
-				bup = open(fpath, "rb")
-				webp = open(basepath + ".webp", "wb")
-				bup.read(64) # and eat it
-				shutil.copyfileobj(bup, webp)
-				bup.close()
-				webp.close()
-				os.remove(fpath)
-				p=Popen([dwebp, basepath + ".webp", "-o" ,os.path.splitext(basepath)[0] + ".png"], cwd=os.getcwd()) #.wait()  faster
-				time.sleep(0.25) #prevent creating too many dwebp's
-				if not p.poll():
-					dwebps.append(p)
+				if supportwebp:
+					bup = open(fpath, "rb")
+					webp = open(basepath + ".webp", "wb")
+					bup.read(64) # and eat it
+					shutil.copyfileobj(bup, webp)
+					bup.close()
+					webp.close()
+					os.remove(fpath)
+					p=Popen([dwebp, basepath + ".webp", "-o" ,os.path.splitext(basepath)[0] + ".png"], cwd=os.getcwd()) #.wait()  faster
+					time.sleep(0.25) #prevent creating too many dwebp's
+					if not p.poll():
+						dwebps.append(p)
+				else:
+					os.remove(fpath)
 			else:
 				shutil.move(fpath, bupname)
-		else:
-			pass
+		# else:	pass
 	if dwebps:
 		print("Waiting for all dwebp's...")
 		for p in dwebps:
