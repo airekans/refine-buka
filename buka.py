@@ -55,11 +55,7 @@ print("Checking environment...")
 try:
 	with open('NUL','w') as nul:
 		p = Popen(dwebp, stdout=nul, stderr=nul).wait()
-	if p==0:
-		supportwebp = True
-	else:
-		print("dwebp is not available, so only normal image files are supported.")
-		supportwebp = False
+	supportwebp = True
 except:
 	print("dwebp is not available, so only normal image files are supported.")
 	supportwebp = False
