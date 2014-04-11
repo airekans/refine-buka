@@ -28,11 +28,15 @@ optional argument:
 
 if sys.version_info[0] < 3:
 	print('Python 3 required.')
+	if os.name=='nt':
+		time.sleep(3)
 	sys.exit()
 
 if len(sys.argv)==2:
 	if sys.argv[1] in ("-h", "--help"):
 		print(helpm)
+		if os.name=='nt':
+			time.sleep(3)
 		sys.exit()
 	else:
 		target = os.path.join(os.path.dirname(sys.argv[1]),"output")
@@ -42,6 +46,8 @@ elif len(sys.argv)==3:
 	target = sys.argv[2]
 else:
 	print(helpm)
+	if os.name=='nt':
+		time.sleep(3)
 	sys.exit()
 
 fn_buka = sys.argv[1]
@@ -53,7 +59,7 @@ else:
 
 print("Checking environment...")
 try:
-	with open('NUL','w') as nul:
+	with open(os.devnull,'w') as nul:
 		p = Popen(dwebp, stdout=nul, stderr=nul).wait()
 	supportwebp = True
 except:
@@ -133,6 +139,8 @@ if os.path.isdir(target):
 			print('No such file: ' + fn_buka)
 			if not os.listdir(target):
 				os.rmdir(target)
+			if os.name=='nt':
+				time.sleep(3)
 			sys.exit()
 		print(('Extracting %s' % fn_buka))
 		extractbuka(fn_buka,target)
