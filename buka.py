@@ -51,7 +51,7 @@ else:
 	sys.exit()
 
 fn_buka = sys.argv[1]
-programdir = os.path.dirname(os.path.abspath(sys.argv[1]))
+programdir = os.path.dirname(os.path.abspath(sys.argv[0]))
 
 if os.name=='nt':
 	dwebp = os.path.join(programdir, 'dwebp.exe')
