@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # Python 3.x
 
-__version__ = 1.55
+__version__ = '1.6'
 
 '''
 布卡漫画转换工具
@@ -51,19 +51,20 @@ else:
 	sys.exit()
 
 fn_buka = sys.argv[1]
+programdir = os.path.dirname(os.path.abspath(sys.argv[1]))
 
 if os.name=='nt':
-	dwebp = 'dwebp.exe'
+	dwebp = os.path.join(programdir, 'dwebp.exe')
 else:
-	dwebp = './dwebp'
+	dwebp = os.path.join(programdir, 'dwebp')
 
 print("Checking environment...")
 try:
 	with open(os.devnull,'w') as nul:
 		p = Popen(dwebp, stdout=nul, stderr=nul).wait()
 	supportwebp = True
-except:
-	print("dwebp is not available, so only normal image files are supported.")
+except Exception as ex:
+	print("dwebp is not available, so only normal image files are supported.\n" + repr(ex))
 	supportwebp = False
 
 def copytree(src, dst, symlinks=False, ignore=None):
@@ -129,8 +130,7 @@ def extractbuka(bkname, target):
 		for index in toc:
 			img = open(os.path.join(target,index[2]),'wb')
 			f.seek(index[0])
-			data = f.read(index[1])
-			img.write(data)
+			img.write(f.read(index[1]))
 			img.close()
 
 if os.path.isdir(target):
@@ -148,7 +148,7 @@ if os.path.isdir(target):
 			dat=json.loads(open(os.path.join(target,"chaporder.dat"),'r').read())
 			os.remove(os.path.join(target,"chaporder.dat"))
 			chap=build_dict(dat['links'],'cid')
-			newtarget = os.path.join(os.path.dirname(target),dat['name']+'-'+renamef(chap,os.path.splitext(fn_buka)[0]))
+			newtarget = os.path.join(os.path.dirname(target),dat['name']+'-'+renamef(chap,os.path.basename(os.path.splitext(fn_buka)[0])))
 			shutil.move(target,newtarget)
 			target = newtarget
 	elif os.path.isdir(fn_buka):
@@ -184,15 +184,12 @@ if os.path.isdir(target):
 			basepath = os.path.splitext(bupname)[0]
 			if os.path.splitext(bupname)[1]==".bup":
 				if supportwebp:
-					bup = open(fpath, "rb")
-					webp = open(basepath + ".webp", "wb")
-					bup.read(64) # and eat it
-					shutil.copyfileobj(bup, webp)
-					bup.close()
-					webp.close()
+					with open(fpath, "rb") as bup, open(basepath + ".webp", "wb") as webp:
+						bup.read(64) # and eat it
+						shutil.copyfileobj(bup, webp)
 					os.remove(fpath)
 					p=Popen([dwebp, basepath + ".webp", "-o" ,os.path.splitext(basepath)[0] + ".png"], cwd=os.getcwd()) #.wait()  faster
-					time.sleep(0.25) #prevent creating too many dwebp's
+					time.sleep(0.2) #prevent creating too many dwebp's
 					if not p.poll():
 						dwebps.append(p)
 				else:
@@ -224,6 +221,8 @@ if os.path.isdir(target):
 				if os.path.isdir(os.path.join(fpath,item)):
 					shutil.move(os.path.join(fpath,item),os.path.join(fpath,renamef(chap,item)))
 			shutil.move(fpath,os.path.join(dirname[0],dat['name']))
+	if not supportwebp:
+		print('WARNING: .bup files are not extracted.')
 	print('Done.')
 else:
 	print("Output put must be a folder.")
