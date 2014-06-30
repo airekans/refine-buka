@@ -18,7 +18,5 @@
 
 然后就可以使用各种图片浏览器、漫画阅读器欣赏漫画。
 
-### 原版
-作者对.buka解析的源文件保留在此。运行 `buka.py` 时无需原版。
-
-    python2 refbuka.py INPUT_DIR OUTPUT_DIR
+### 兼容性
+使用 dwebp 解码 bup 图像有以下限制：对于 Windows XP SP2 以及以下 Windows 系统，需要安装有 .NET Framework 3.0，或 Windows Imaging Component。对于 Linux 系统，需要使用 x86(_64) 架构。
