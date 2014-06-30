@@ -17,7 +17,9 @@ import shutil
 import time
 import json
 import struct
-from subprocess import Popen
+import subprocess
+from collections import deque
+
 helpm = '''提取布卡漫画下载的漫画文件
 
 用法: python3 %s 输入文件(夹) [输出文件夹]
@@ -66,13 +68,13 @@ else:
 print("检查环境...")
 try:
 	with open(os.devnull, 'w') as nul:
-		p = Popen(dwebp, stdout=nul, stderr=nul).wait()
+		p = subprocess.Popen(dwebp, stdout=nul, stderr=nul).wait()
 	supportwebp = True
 except Exception as ex:
 	if os.name == 'posix':
 		try:
 			with open(os.devnull, 'w') as nul:
-				p = Popen('dwebp', stdout=nul, stderr=nul).wait()
+				p = subprocess.Popen('dwebp', stdout=nul, stderr=nul).wait()
 			supportwebp = True
 		except Exception as ex:
 			print(_("dwebp 不可用，仅支持普通文件格式。\n") + repr(ex))
@@ -148,6 +150,16 @@ def extractbuka(bkname, target):
 			img.write(f.read(index[1]))
 			img.close()
 
+class dwebpManager:
+	def __init__(self, dwebp):
+		self.dwebp = dwebp
+		self.queue = deque()
+		self.proc = deque()
+		self.maxlen = 5
+	
+	def decode(self, webp):
+		self.proc.append(subprocess.Popen([dwebp, basepath + ".webp", "-o", os.path.splitext(basepath)[0] + ".png"], cwd=os.getcwd()))
+
 if os.path.isdir(target):
 	if os.path.splitext(fn_buka)[1] == ".buka":
 		if not os.path.isfile(fn_buka):
@@ -203,7 +215,7 @@ if os.path.isdir(target):
 						bup.read(64)  # and eat it
 						shutil.copyfileobj(bup, webp)
 					os.remove(fpath)
-					p = Popen([dwebp, basepath + ".webp", "-o", os.path.splitext(basepath)[0] + ".png"], cwd=os.getcwd())  # .wait()  faster
+					p = subprocess.Popen([dwebp, basepath + ".webp", "-o", os.path.splitext(basepath)[0] + ".png"], cwd=os.getcwd())  # .wait()  faster
 					time.sleep(0.2)  # prevent creating too many dwebp's
 					if not p.poll():
 						dwebps.append(p)

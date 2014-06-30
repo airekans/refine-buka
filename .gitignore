@@ -33,3 +33,9 @@ nosetests.xml
 .mr.developer.cfg
 .project
 .pydevproject
+
+__pycache__
+*.buka
+*.zip
+temp
+download
