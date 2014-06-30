@@ -18,6 +18,7 @@ import time
 import json
 import struct
 import subprocess
+import sqlite3
 from collections import deque
 
 helpm = '''提取布卡漫画下载的漫画文件
@@ -78,13 +79,85 @@ class BukaFile:
 	
 	def __repr__(self):
 		return "<BukaFile comicid=%r chapid=%r comicname=%r>" % \
-            (self.comicid, self.chapid, self.comicname)
+			(self.comicid, self.chapid, self.comicname)
 	
 	def close(self):
 		self.fp.close()
 	
 	def __del__(self):
 		self.fp.close()
+
+class ComicInfo:
+	def __init__(self, chaporder):
+		self.chaporder = chaporder
+		self.comicname = chaporder['name']
+		self.chap = {}
+		for d in chaporder['links']:
+			self.chap[d['cid']] = d
+		try:
+			self.comicid = int(chaporder['logo'].split('/')[-1].split('-')[0])
+		except:
+			self.comicid = -1
+	
+	def renamef(self, cid):
+		if cid in self.chap:
+			if self.chap[cid]['title']:
+				return self.chap[cid]['title']
+			else:
+				if self.chap[cid]['type'] == '0':
+					return '第' + self.chap[cid]['idx'].zfill(2) + '卷'
+				elif self.chap[cid]['type'] == '1':
+					return '第' + self.chap[cid]['idx'].zfill(3) + '话'
+				elif self.chap[cid]['type'] == '2':
+					return '番外' + self.chap[cid]['idx'].zfill(2)
+				else:
+					return self.chap[cid]['idx'].zfill(3)
+		else:
+			return cid
+
+	def __repr__(self):
+		return "<ComicInfo comicid=%r comicname=%r>" % (self.comicid, self.comicname)
+
+def buildfromdb(dbname):
+	db = sqlite3.connect(dbname)
+	c = db.cursor()
+	initd = {'author': '', #mangainfo/author
+			 'discount': '0', 'favor': 0,
+			 'finish': '0', #ismangaend/isend
+			 'intro': '',
+			 'lastup': '', #mangainfo/recentupdatename
+			 'lastupcid': '', #Trim and lookup chapterinfo/fulltitle
+			 'lastuptime': '', #mangainfo/recentupdatetime
+			 'lastuptimeex': '', #mangainfo/recentupdatetime + ' 00:00:00'
+			 'links': [], #From chapterinfo
+			 'links': [{'cid': '0', #chapterinfo/cid
+						'idx': '0', #chapterinfo/idx
+						'ressupport': '7',
+						'size': '0',
+						'title': '', #chapterinfo/title if not chapterinfo/fulltitle else ''
+						'type': '0' #'卷' in chapterinfo/fulltitle : 0; '话':1; not chapterinfo/fulltitle: 2
+						}],
+			 'logo': 'http://c-pic3.weikan.cn/logo/logo/1906-b.jpg',
+			 'logos': 'http://c-pic3.weikan.cn/logo/logo/1906-s.jpg',
+			 'name': '有你的小镇',
+			 'popular': 9999999,
+			 'populars': '10000000+',
+			 'rate': '20',
+			 'readmode': 50331648,
+			 'readmode2': '0',
+			 'recomctrlparam': '101696',
+			 'recomctrltype': '1',
+			 'recomdelay': '2000',
+			 'recomenter': '应聘>>>',
+			 'recomwords': '我想找几个小伙伴一起玩~',
+			 'res': [{'cid': '65651', 'csize': '4942', 'restype': '1'},
+					 {'cid': '65651', 'csize': '8566', 'restype': '2'},
+					 {'cid': '65651', 'csize': '7245', 'restype': '4'}],
+			 'resupno': '1384827572',
+			 'ret': 0,
+			 'upno': '1418'}
+
+	
 
 def detectfile(filename):
 	"""Tests file format."""
@@ -182,22 +255,6 @@ def build_dict(seq, key):
 	for d in seq:
 		rd[d[key]] = d
 	return rd
-
-def renamef(chap, cid):
-	if chap.get(cid):
-		if chap[cid]['title']:
-			return chap[cid]['title']
-		else:
-			if chap[cid]['type'] == '0':
-				return '卷' + chap[cid]['idx'].zfill(2)
-			elif chap[cid]['type'] == '1':
-				return '第' + chap[cid]['idx'].zfill(3) + '话'
-			elif chap[cid]['type'] == '2':
-				return '番外' + chap[cid]['idx'].zfill(2)
-			else:
-				return chap[cid]['idx'].zfill(3)
-	else:
-		return cid
 
 
 class dwebpManager:
