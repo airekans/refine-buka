@@ -13,6 +13,10 @@ __version__ = "2.0"
 '''
 
 import sys
+if sys.version_info[0] < 3:
+	print('requires Python 3. try:\n python3 ' + sys.argv[0])
+	sys.exit(1)
+
 import os
 import shutil
 import argparse
@@ -26,6 +30,7 @@ import threadpool
 from io import StringIO
 from subprocess import Popen, PIPE
 from platform import machine
+
 
 NT_SLEEP_SEC = 6
 logstr = StringIO()
@@ -517,6 +522,8 @@ def copytree(src, dst, symlinks=False, ignore=None):
 				d = os.path.splitext(d)[0]
 			if not os.path.isfile(d) or os.stat(src).st_mtime - os.stat(dst).st_mtime > 1:
 				shutil.copy2(s, d)
+	if not os.listdir(dst):
+		os.rmdir(dst)
 
 class DwebpMan:
 	def __init__(self, dwebppath, process):
@@ -600,7 +607,7 @@ def logexit(err=True):
 		print('如果不是使用方法错误，请发送错误报告 bukaex.log 给作者 ' + __author__)
 	if os.name == 'nt':
 		time.sleep(NT_SLEEP_SEC)
-	sys.exit()
+	sys.exit(int(err))
 
 def main():
 	LOG_CONFIG = {'version':1,
@@ -616,11 +623,6 @@ def main():
 								  'stream':logstr}},
 			'root':{'handlers':('console', 'strlogger'), 'level':'DEBUG'}}
 	logging.config.dictConfig(LOG_CONFIG)
-	
-
-	if sys.version_info[0] < 3:
-		logging.critical('要求 Python 3.')
-		logexit(False)
 
 	parser = ArgumentParserWait(description="Converts comics downloaded by Buka.")
 	parser.add_argument("-p", "--process", help="the max number of running dwebp's. (Default = CPU count)", default=(os.cpu_count() if os.cpu_count() else 2), type=int, metavar='NUM')
@@ -689,4 +691,5 @@ if __name__ == '__main__':
 	try:
 		main()
 	except:
+		logging.exception('Main thread exception.')
 		logexit()
