@@ -5,14 +5,14 @@
 ## 本分支说明
 本 `rewrite` 分支正在进行buka及其相关文件格式结构化解析的重写工作。为保证旧版本的可用性，开设此分支。
 
-目标：
 * 将各类文件格式用对象表示，可访问属性及操作。
 * 解析iOS平台下数据库buka_store.sql，并实现其对chaporder.dat的转换。
 * 重写重命名部分，实现规范化的命名逻辑。
 
-已完成：
 * `BukaFile` 对.buka文件的解析与提取
 * `ComicInfo` 对chaporder.dat文件的解析
+* `DirMan` 实现自动重命名
+* `DwebpMan` 实现 dwebp 进程池
 
 可通过`import buka`来进行研究和扩展功能。
 
@@ -37,3 +37,6 @@
 作者对.buka解析的源文件保留在此。运行 `buka.py` 时无需原版。
 
     python2 refbuka.py INPUT_DIR OUTPUT_DIR
+
+## 问题
+因为采用了 no WIC 版本的 dwebp.exe，对 Windows SP2 及以下操作系统已兼容。由于仅将 .bup/webp 格式直接转换成 png 格式，所以文件大小偏大。用户可自行转换成 jpg 以减小文件体积。

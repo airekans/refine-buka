@@ -27,6 +27,7 @@ import sqlite3
 import logging, logging.config
 import threadpool
 from io import StringIO
+from collections import OrderedDict
 from subprocess import Popen, PIPE
 from platform import machine
 
@@ -108,7 +109,7 @@ class BukaFile:
 		pos += 4
 		f.seek(pos)
 		buff = f.read(endhead-pos+1)
-		self.files = {}
+		self.files = OrderedDict() # {}
 		pos = 0
 		while pos+8 < len(buff):
 			pointer, size = struct.unpack('<II', buff[pos:pos + 8])
@@ -199,7 +200,7 @@ class ComicInfo:
 				else:
 					return self.chap[cid]['idx'].zfill(3)
 		else:
-			return cid
+			return str(cid)
 	
 	def __getitem__(self, key):
 		if key in self.chaporder:
@@ -269,8 +270,6 @@ class DirMan:
 						#dtype = None
 						pass
 					self.updatecomicdict(chaporder)
-				#elif name == 'index2.dat':
-					#pass
 				elif name == 'pack.dat':
 					logging.info('正在提取 ' + self.cutname(filename))
 					buka = BukaFile(filename)
@@ -286,10 +285,21 @@ class DirMan:
 					buka = BukaFile(filename)
 					chaporder = ComicInfo(json.loads(buka['chaporder.dat'].decode('utf-8')))
 					if chaporder.comicid is None:
-						chaporder.comicid = int(os.path.basename(root))
+						try:
+							chaporder.comicid = int(os.path.basename(root))
+						except ValueError:
+							pass
 					self.updatecomicdict(chaporder)
 					extractndecode(buka, os.path.join(root, os.path.splitext(name)[0]), self.dwebpman)
-					dtype = ifndef(dtype, ('comic', buka.comicname))
+					sp = splitpath(self.cutname(os.path.join(root, os.path.splitext(name)[0])))
+					self.nodes[sp] = ('chap', buka.comicname, chaporder.renamef(buka.chapid))
+					logging.info(self.nodes[sp])
+					try:
+						tempid = int(os.path.basename(root))
+						if tempid == buka.comicid:
+							dtype = ifndef(dtype, ('comic', buka.comicname))
+					except ValueError:
+						pass
 					del buka
 					os.remove(filename)
 				elif detectfile(filename) == 'bup':
