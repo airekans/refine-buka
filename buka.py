@@ -9,7 +9,7 @@ __version__ = "2.0"
 布卡漫画转换工具
 支持 .buka, .bup.view, .jpg.view
 
-漫画目录 存放在 /sdcard/ibuka/down
+API: import buka
 '''
 
 import sys
@@ -25,12 +25,10 @@ import json
 import struct
 import sqlite3
 import logging, logging.config
-import traceback
 import threadpool
 from io import StringIO
 from subprocess import Popen, PIPE
 from platform import machine
-
 
 NT_SLEEP_SEC = 6
 logstr = StringIO()
@@ -317,7 +315,7 @@ class DirMan:
 						for key in cdict:
 							self.updatecomicdict(cdict[key])
 					except:
-						logging.warning('不是有效的数据库: ' + self.cutname(filename))
+						logging.error('不是有效的数据库: ' + self.cutname(filename))
 				#else:
 					#dtype = 'unk'
 			#for name in subFolders:
@@ -630,7 +628,7 @@ def main():
 	parser.add_argument("--dwebp", help="locate your own dwebp WebP decoder.", default=None)
 	parser.add_argument("-d", "--db", help="locate the 'buka_store.sql' file in iOS devices, which provides infomation for renaming.", default=None, metavar='buka_store.sql')
 	parser.add_argument("input", help="the .buka file or the folder containing files downloaded by Buka, which is usually located in (Android) /sdcard/ibuka/down")
-	parser.add_argument("output", nargs='?', help="the output folder. (Default in ./output)", default=None)
+	parser.add_argument("output", nargs='?', help="the output folder. (Default = ./output)", default=None)
 	args = parser.parse_args()
 	logging.debug(repr(args))
 
