@@ -6,7 +6,6 @@
 * 将各类文件格式用对象表示，可访问属性及操作。
 * 解析iOS平台下数据库buka_store.sql，并实现其对chaporder.dat的转换。
 * 重写重命名部分，实现规范化的命名逻辑。
-
 * `BukaFile` 对.buka文件的解析与提取
 * `ComicInfo` 对chaporder.dat文件的解析
 * `DirMan` 实现自动重命名
@@ -14,7 +13,7 @@
 
 可通过`import buka`来进行研究和扩展功能。
 
-如果有 Pillow 模块，可直接解码成 png。
+如果有 Pillow (PIL) 模块并支持 WebP，可直接解码成 png。
 
 
 ## 功能
