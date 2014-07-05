@@ -12,9 +12,11 @@
 * `BukaFile` 对.buka文件的解析与提取
 * `ComicInfo` 对chaporder.dat文件的解析
 * `DirMan` 实现自动重命名
-* `DwebpMan` 实现 dwebp 进程池
+* `DwebpMan` 实现 dwebp 进程/线程池
 
 可通过`import buka`来进行研究和扩展功能。
+
+如果有 Pillow 模块，可直接解码成 png。
 
 
 ## 功能
@@ -39,4 +41,6 @@
     python2 refbuka.py INPUT_DIR OUTPUT_DIR
 
 ## 问题
-因为采用了 no WIC 版本的 dwebp.exe，对 Windows SP2 及以下操作系统已兼容。由于仅将 .bup/webp 格式直接转换成 png 格式，所以文件大小偏大。用户可自行转换成 jpg 以减小文件体积。
+因为采用了 no WIC 版本的 dwebp.exe，对 Windows SP2 及以下操作系统已兼容。
+
+如果采用外部程序 dwebp 解码，由于仅将 .bup/webp 格式直接转换成 png 格式，所以文件大小偏大。用户可自行转换成 jpg 以减小文件体积（png2jpg.py）。

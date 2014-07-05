@@ -30,6 +30,13 @@ from io import StringIO
 from collections import OrderedDict
 from subprocess import Popen, PIPE
 from platform import machine
+try:
+	# requires Pillow with WebP support
+	from PIL import Image
+	if int(Image.PILLOW_VERSION.split('.')[0]) >= 2:
+		SUPPORTPIL = True
+except ImportError:
+	SUPPORTPIL = False
 
 NT_SLEEP_SEC = 6
 logstr = StringIO()
@@ -293,7 +300,6 @@ class DirMan:
 					extractndecode(buka, os.path.join(root, os.path.splitext(name)[0]), self.dwebpman)
 					sp = splitpath(self.cutname(os.path.join(root, os.path.splitext(name)[0])))
 					self.nodes[sp] = ('chap', buka.comicname, chaporder.renamef(buka.chapid))
-					logging.info(self.nodes[sp])
 					try:
 						tempid = int(os.path.basename(root))
 						if tempid == buka.comicid:
@@ -536,6 +542,7 @@ def copytree(src, dst, symlinks=False, ignore=None):
 class DwebpMan:
 	def __init__(self, dwebppath, process):
 		programdir = os.path.dirname(os.path.abspath(sys.argv[0]))
+		self.fail = False
 		if '64' in machine():
 			bit = '64'
 		else:
@@ -590,6 +597,7 @@ class DwebpMan:
 
 	def handle_thread_exception(self, request, exc_info):
 		"""Logging exception handler callback function."""
+		self.fail = True
 		logging.getLogger().exception(str(request))
 
 	def decodewebp(self, basepath, displayname):
@@ -602,6 +610,34 @@ class DwebpMan:
 			stderr = stderr.decode(errors='ignore')
 		os.remove(basepath + ".webp")
 		return (proc.returncode, stderr)
+
+class DwebpPILMan:
+	def __init__(self, process):
+		self.supportwebp = True
+		self.fail = False
+		self.pool = threadpool.NoOrderedRequestManager(process,self.decodewebp,self.checklog,self.handle_thread_exception)
+
+	def add(self, basepath, displayname):
+		self.pool.putRequest([basepath, displayname])
+
+	def wait(self):
+		self.pool.wait()
+
+	def checklog(self, request, result):
+		if result:
+			logging.info("完成转换 %s", request.args[1])
+		else:
+			logging.error("解码错误: %s", request.args[1])
+
+	def handle_thread_exception(self, request, exc_info):
+		"""Logging exception handler callback function."""
+		self.fail = True
+		logging.getLogger().error(str(request) + '\n' + repr(exc_info))
+
+	def decodewebp(self, basepath, displayname):
+		im = Image.open(basepath + ".webp").save(basepath + '.jpg', quality=90)
+		os.remove(basepath + ".webp")
+		return True
 
 def logexit(err=True):
 	logging.shutdown()
@@ -633,12 +669,12 @@ def main():
 	logging.config.dictConfig(LOG_CONFIG)
 
 	parser = ArgumentParserWait(description="Converts comics downloaded by Buka.")
-	parser.add_argument("-p", "--process", help="the max number of running dwebp's. (Default = CPU count)", default=(os.cpu_count() if os.cpu_count() else 2), type=int, metavar='NUM')
-	parser.add_argument("-s", "--same-dir", action='store_true', help="change the default output dir to <input>/../output. Ignored when specifies <output>")
-	parser.add_argument("--dwebp", help="locate your own dwebp WebP decoder.", default=None)
-	parser.add_argument("-d", "--db", help="locate the 'buka_store.sql' file in iOS devices, which provides infomation for renaming.", default=None, metavar='buka_store.sql')
-	parser.add_argument("input", help="the .buka file or the folder containing files downloaded by Buka, which is usually located in (Android) /sdcard/ibuka/down")
-	parser.add_argument("output", nargs='?', help="the output folder. (Default = ./output)", default=None)
+	parser.add_argument("-p", "--process", help="The max number of running dwebp's. (Default = CPU count)", default=(os.cpu_count() if os.cpu_count() else 2), type=int, metavar='NUM')
+	parser.add_argument("-s", "--same-dir", action='store_true', help="Change the default output dir to <input>/../output. Ignored when specifies <output>")
+	parser.add_argument("--dwebp", nargs='?', help="Perfer dwebp for decoding, and/or locate your own dwebp WebP decoder.", default=None, const=True)
+	parser.add_argument("-d", "--db", help="Locate the 'buka_store.sql' file in iOS devices, which provides infomation for renaming.", default=None, metavar='buka_store.sql')
+	parser.add_argument("input", help="The .buka file or the folder containing files downloaded by Buka, which is usually located in (Android) /sdcard/ibuka/down")
+	parser.add_argument("output", nargs='?', help="The output folder. (Default = ./output)", default=None)
 	args = parser.parse_args()
 	logging.debug(repr(args))
 
@@ -658,10 +694,18 @@ def main():
 		try:
 			dbdict = buildfromdb(args.db)
 		except:
-			logging.warning('指定的数据库文件不是有效的 iOS 设备中的 buka_store.sql 数据库文件。提取过程将继续。')
-
+			logging.error('指定的数据库文件不是有效的 iOS 设备中的 buka_store.sql 数据库文件。提取过程将继续。')
+	
+	logging.info('%s version %s' % (os.path.basename(sys.argv[0]), __version__))
 	logging.info("检查环境...")
-	dwebpman = DwebpMan(args.dwebp, args.process)
+	if args.dwebp == True:
+		dwebpman = DwebpMan(None, args.process)
+	elif args.dwebp:
+		dwebpman = DwebpMan(args.dwebp, args.process)
+	elif SUPPORTPIL:
+		dwebpman = DwebpPILMan(args.process)
+	else:
+		dwebpman = DwebpMan(args.dwebp, args.process)
 
 	if os.path.isdir(target):
 		if detectfile(fn_buka) == "buka":
@@ -690,6 +734,8 @@ def main():
 			logexit()
 		if not dwebpman.supportwebp:
 			logging.warning('警告: .bup 格式文件无法提取。')
+		if dwebpman.fail:
+			logexit()
 		logging.info('完成。')
 	else:
 		logging.critical("错误: 输出文件夹路径为一个文件。")
@@ -698,6 +744,8 @@ def main():
 if __name__ == '__main__':
 	try:
 		main()
+	except SystemExit:
+		pass
 	except:
 		logging.exception('Main thread exception.')
 		logexit()
