@@ -25,16 +25,19 @@ import json
 import struct
 import sqlite3
 import logging, logging.config
+import traceback
 import threadpool
 from io import StringIO
 from collections import OrderedDict
 from subprocess import Popen, PIPE
 from platform import machine
+from multiprocessing import cpu_count
 try:
 	# requires Pillow with WebP support
 	from PIL import Image
-	if int(Image.PILLOW_VERSION.split('.')[0]) >= 2:
-		SUPPORTPIL = True
+	import PIL.WebPImagePlugin
+	# if int(Image.PILLOW_VERSION.split('.')[0]) >= 2:
+	SUPPORTPIL = True
 except ImportError:
 	SUPPORTPIL = False
 
@@ -118,19 +121,24 @@ class BukaFile:
 		buff = f.read(endhead-pos+1)
 		self.files = OrderedDict() # {}
 		pos = 0
-		while pos+8 < len(buff):
+		while pos + 8 < len(buff):
 			pointer, size = struct.unpack('<II', buff[pos:pos + 8])
 			pos += 8
 			end = buff.find(b'\x00', pos)
 			name = buff[pos:end].decode(encoding='utf-8', errors='ignore')
 			pos = end + 1
 			self.files[name] = (pointer, size)
+		self.fp.seek(self.files['chaporder.dat'][0])
+		self._chaporderdat = self.fp.read(self.files['chaporder.dat'][1])
+		self.chapinfo = ComicInfo(json.loads(self._chaporderdat.decode('utf-8')))
 	
 	def __len__(self):
 		return len(self.files)
 	
 	def __getitem__(self, key):
 		if key in self.files:
+			if key == 'chaporder.dat':
+				return self._chaporderdat
 			index = self.files[key]
 			self.fp.seek(index[0])
 			return self.fp.read(index[1])
@@ -148,6 +156,8 @@ class BukaFile:
 	
 	def getfile(self, key, offset=0):
 		'''offset is for bup files.'''
+		if key == 'chaporder.dat':
+			return self._chaporderdat
 		index = self.files[key]
 		self.fp.seek(index[0] + offset)
 		return self.fp.read(index[1] - offset)
@@ -280,17 +290,17 @@ class DirMan:
 				elif name == 'pack.dat':
 					logging.info('正在提取 ' + self.cutname(filename))
 					buka = BukaFile(filename)
-					chaporder = ComicInfo(json.loads(buka['chaporder.dat'].decode('utf-8')))
+					chaporder = buka.chapinfo
 					self.updatecomicdict(chaporder)
 					# buka.extractall(root)
 					extractndecode(buka, root, self.dwebpman)
 					dtype = ifndef(dtype, ('chap', buka.comicname, chaporder.renamef(int(os.path.basename(root)))))
-					del buka
+					buka.close()
 					os.remove(filename)
 				elif detectfile(filename) == 'buka':
 					logging.info('正在提取 ' + self.cutname(filename))
 					buka = BukaFile(filename)
-					chaporder = ComicInfo(json.loads(buka['chaporder.dat'].decode('utf-8')))
+					chaporder = buka.chapinfo
 					if chaporder.comicid is None:
 						try:
 							chaporder.comicid = int(os.path.basename(root))
@@ -306,7 +316,7 @@ class DirMan:
 							dtype = ifndef(dtype, ('comic', buka.comicname))
 					except ValueError:
 						pass
-					del buka
+					buka.close()
 					os.remove(filename)
 				elif detectfile(filename) == 'bup':
 					logging.info('加入队列 ' + self.cutname(filename))
@@ -364,12 +374,20 @@ class DirMan:
 				origpath = os.path.join(os.path.dirname(self.dirpath), *i)
 				basepath = os.path.join(os.path.dirname(self.dirpath), *i[:-1])
 				if this[0] == 'comic':
-					shutil.move(origpath, os.path.join(basepath, this[1]))
+					movedir(origpath, os.path.join(basepath, this[1]))
 				elif parent:
 					if this[1] == parent[1]:
-						shutil.move(origpath, os.path.join(basepath, this[2]))
+						movedir(origpath, os.path.join(basepath, this[2]))
 				else:
-					shutil.move(origpath, os.path.join(basepath, this[1] + '-' + this[2]))
+					movedir(origpath, os.path.join(basepath, this[1] + '-' + this[2]))
+	
+def movedir(src, dst):
+	if os.path.isdir(src) and os.path.isdir(dst):
+		for item in os.listdir(src):
+			shutil.move(os.path.join(src, item), os.path.join(dst, item))
+		os.rmdir(src)
+	else:
+		shutil.move(src, dst)
 
 def splitpath(path):
 	folders = []
@@ -598,7 +616,8 @@ class DwebpMan:
 	def handle_thread_exception(self, request, exc_info):
 		"""Logging exception handler callback function."""
 		self.fail = True
-		logging.getLogger().exception(str(request))
+		logging.getLogger().error(str(request))
+		traceback.print_exception(*exc_info, file=logstr)
 
 	def decodewebp(self, basepath, displayname):
 		proc = Popen([self.dwebp, basepath + ".webp", "-o", basepath + ".png"], stdout=PIPE, stderr=PIPE, cwd=os.getcwd())
@@ -632,10 +651,12 @@ class DwebpPILMan:
 	def handle_thread_exception(self, request, exc_info):
 		"""Logging exception handler callback function."""
 		self.fail = True
-		logging.getLogger().error(str(request) + '\n' + repr(exc_info))
-
+		logging.getLogger().error(str(request))
+		traceback.print_exception(*exc_info, file=logstr)
+	
 	def decodewebp(self, basepath, displayname):
 		im = Image.open(basepath + ".webp").save(basepath + '.jpg', quality=90)
+		im.close()
 		os.remove(basepath + ".webp")
 		return True
 
@@ -667,9 +688,13 @@ def main():
 								  'stream':logstr}},
 			'root':{'handlers':('console', 'strlogger'), 'level':'DEBUG'}}
 	logging.config.dictConfig(LOG_CONFIG)
+	try:
+		cpus = cpu_count() if cpu_count() else 2
+	except NotImplementedError:
+		cpus = 1
 
 	parser = ArgumentParserWait(description="Converts comics downloaded by Buka.")
-	parser.add_argument("-p", "--process", help="The max number of running dwebp's. (Default = CPU count)", default=(os.cpu_count() if os.cpu_count() else 2), type=int, metavar='NUM')
+	parser.add_argument("-p", "--process", help="The max number of running dwebp's. (Default = CPU count)", default=cpus, type=int, metavar='NUM')
 	parser.add_argument("-s", "--same-dir", action='store_true', help="Change the default output dir to <input>/../output. Ignored when specifies <output>")
 	parser.add_argument("--dwebp", nargs='?', help="Perfer dwebp for decoding, and/or locate your own dwebp WebP decoder.", default=None, const=True)
 	parser.add_argument("-d", "--db", help="Locate the 'buka_store.sql' file in iOS devices, which provides infomation for renaming.", default=None, metavar='buka_store.sql')
@@ -715,7 +740,10 @@ def main():
 					os.rmdir(target)
 				logexit()
 			logging.info('正在提取 ' + fn_buka)
-			extractndecode(BukaFile(fn_buka), target, dwebpman)
+			buka = BukaFile(fn_buka)
+			extractndecode(buka, target, dwebpman)
+			movedir(target, os.path.join(os.path.dirname(target), buka.comicname + '-' + buka.chapinfo.renamef(buka.chapid)))
+			buka.close()
 		elif os.path.isdir(fn_buka):
 			logging.info('正在复制...')
 			copytree(fn_buka, target)
