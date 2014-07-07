@@ -712,6 +712,7 @@ def main():
 	else:
 		target = 'output'
 	target = os.path.abspath(target)
+	logging.debug('target = ' + target)
 	if not os.path.exists(target):
 		os.makedirs(target)
 	dbdict = {}
@@ -742,6 +743,8 @@ def main():
 			logging.info('正在提取 ' + fn_buka)
 			buka = BukaFile(fn_buka)
 			extractndecode(buka, target, dwebpman)
+			if dwebpman.supportwebp:
+				dwebpman.wait()
 			movedir(target, os.path.join(os.path.dirname(target), buka.comicname + '-' + buka.chapinfo.renamef(buka.chapid)))
 			buka.close()
 		elif os.path.isdir(fn_buka):
@@ -760,11 +763,12 @@ def main():
 			if not os.listdir(target):
 				os.rmdir(target)
 			logexit()
-		if not dwebpman.supportwebp:
-			logging.warning('警告: .bup 格式文件无法提取。')
 		if dwebpman.fail:
 			logexit()
 		logging.info('完成。')
+		if not dwebpman.supportwebp:
+			logging.warning('警告: .bup 格式文件无法提取。')
+			logexit()
 	else:
 		logging.critical("错误: 输出文件夹路径为一个文件。")
 		logexit()
