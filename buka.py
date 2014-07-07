@@ -264,6 +264,7 @@ class DirMan:
 		   and decode bup/webp images.
 		'''
 		ifndef = lambda x,y: x if x else y
+		removefiles = []
 		for root, subFolders, files in os.walk(self.dirpath):
 			dtype = None
 			frombup = set()
@@ -296,7 +297,7 @@ class DirMan:
 					extractndecode(buka, root, self.dwebpman)
 					dtype = ifndef(dtype, ('chap', buka.comicname, chaporder.renamef(int(os.path.basename(root)))))
 					buka.close()
-					os.remove(filename)
+					removefiles.append(filename)
 				elif detectfile(filename) == 'buka':
 					logging.info('正在提取 ' + self.cutname(filename))
 					buka = BukaFile(filename)
@@ -317,15 +318,15 @@ class DirMan:
 					except ValueError:
 						pass
 					buka.close()
-					os.remove(filename)
+					removefiles.append(filename)
 				elif detectfile(filename) == 'bup':
 					logging.info('加入队列 ' + self.cutname(filename))
 					with open(filename, 'rb') as f, open(os.path.splitext(filename)[0] + '.webp', 'wb') as w:
 						f.seek(64)
 						shutil.copyfileobj(f, w)
-					os.remove(filename)
 					frombup.add(os.path.splitext(filename)[0] + '.webp')
 					self.dwebpman.add(os.path.splitext(filename)[0], self.cutname(filename))
+					removefiles.append(filename)
 					#decodewebp(os.path.splitext(filename)[0])
 					#dtype = 'chap'
 				elif detectfile(filename) == 'webp':
@@ -363,6 +364,9 @@ class DirMan:
 				except ValueError:
 					pass
 			self.nodes[sp] = dtype
+		# just for the low speed of Windows
+		for filename in removefiles:
+			tryremove(filename)
 	
 	def renamedirs(self):
 		'''do the renaming.'''
@@ -382,12 +386,26 @@ class DirMan:
 					movedir(origpath, os.path.join(basepath, this[1] + '-' + this[2]))
 	
 def movedir(src, dst):
-	if os.path.isdir(src) and os.path.isdir(dst):
+	if src == dst:
+		pass
+	elif os.path.isdir(src) and os.path.isdir(dst):
 		for item in os.listdir(src):
-			shutil.move(os.path.join(src, item), os.path.join(dst, item))
+			movedir(os.path.join(src, item), os.path.join(dst, item))
 		os.rmdir(src)
 	else:
 		shutil.move(src, dst)
+
+def tryremove(filename):
+	# just for the low speed of Windows
+	for att in range(5):
+		try:
+			os.remove(filename)
+			break
+		except PermissionError as ex:
+			logging.debug("Delete failed, trying...")
+			if att == 4:
+				raise ex
+			time.sleep(0.25)
 
 def splitpath(path):
 	folders = []
@@ -627,7 +645,7 @@ class DwebpMan:
 			#logging.info("dwebp: " + stdout)
 		if stderr:
 			stderr = stderr.decode(errors='ignore')
-		os.remove(basepath + ".webp")
+		tryremove(basepath + ".webp")
 		return (proc.returncode, stderr)
 
 class DwebpPILMan:
@@ -655,9 +673,11 @@ class DwebpPILMan:
 		traceback.print_exception(*exc_info, file=logstr)
 	
 	def decodewebp(self, basepath, displayname):
-		im = Image.open(basepath + ".webp").save(basepath + '.jpg', quality=90)
+		im = Image.open(basepath + ".webp")
+		im.save(basepath + '.jpg', quality=90)
 		im.close()
-		os.remove(basepath + ".webp")
+		del im
+		tryremove(basepath + ".webp")
 		return True
 
 def logexit(err=True):
@@ -696,6 +716,7 @@ def main():
 	parser = ArgumentParserWait(description="Converts comics downloaded by Buka.")
 	parser.add_argument("-p", "--process", help="The max number of running dwebp's. (Default = CPU count)", default=cpus, type=int, metavar='NUM')
 	parser.add_argument("-s", "--same-dir", action='store_true', help="Change the default output dir to <input>/../output. Ignored when specifies <output>")
+	parser.add_argument("-l", "--log", action='store_true', help="Force logging to file.")
 	parser.add_argument("--dwebp", nargs='?', help="Perfer dwebp for decoding, and/or locate your own dwebp WebP decoder.", default=None, const=True)
 	parser.add_argument("-d", "--db", help="Locate the 'buka_store.sql' file in iOS devices, which provides infomation for renaming.", default=None, metavar='buka_store.sql')
 	parser.add_argument("input", help="The .buka file or the folder containing files downloaded by Buka, which is usually located in (Android) /sdcard/ibuka/down")
@@ -768,6 +789,8 @@ def main():
 		logging.info('完成。')
 		if not dwebpman.supportwebp:
 			logging.warning('警告: .bup 格式文件无法提取。')
+			logexit()
+		if args.log:
 			logexit()
 	else:
 		logging.critical("错误: 输出文件夹路径为一个文件。")
