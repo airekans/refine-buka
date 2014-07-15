@@ -128,16 +128,22 @@ class BukaFile:
 			name = buff[pos:end].decode(encoding='utf-8', errors='ignore')
 			pos = end + 1
 			self.files[name] = (pointer, size)
-		self.fp.seek(self.files['chaporder.dat'][0])
-		self._chaporderdat = self.fp.read(self.files['chaporder.dat'][1])
-		self.chapinfo = ComicInfo(json.loads(self._chaporderdat.decode('utf-8')))
+		try:
+			self.fp.seek(self.files['chaporder.dat'][0])
+			self._chaporderdat = self.fp.read(self.files['chaporder.dat'][1])
+			self.chapinfo = ComicInfo(json.loads(self._chaporderdat.decode('utf-8')))
+			if self.chapinfo.comicid is None:
+				chapinfo.comicid = self.comicid
+		except KeyError:
+			self._chaporderdat, self.chapinfo = None, None
+			
 	
 	def __len__(self):
 		return len(self.files)
 	
 	def __getitem__(self, key):
 		if key in self.files:
-			if key == 'chaporder.dat':
+			if key == 'chaporder.dat' and self._chaporderdat:
 				return self._chaporderdat
 			index = self.files[key]
 			self.fp.seek(index[0])
@@ -156,7 +162,7 @@ class BukaFile:
 	
 	def getfile(self, key, offset=0):
 		'''offset is for bup files.'''
-		if key == 'chaporder.dat':
+		if key == 'chaporder.dat' and self._chaporderdat:
 			return self._chaporderdat
 		index = self.files[key]
 		self.fp.seek(index[0] + offset)
@@ -267,7 +273,7 @@ class DirMan:
 		removefiles = []
 		for root, subFolders, files in os.walk(self.dirpath):
 			dtype = None
-			frombup = set()
+			#frombup = set()
 			for name in files:
 				filename = os.path.join(root, name)
 				if name == 'chaporder.dat':
@@ -291,26 +297,26 @@ class DirMan:
 				elif name == 'pack.dat':
 					logging.info('正在提取 ' + self.cutname(filename))
 					buka = BukaFile(filename)
-					chaporder = buka.chapinfo
-					self.updatecomicdict(chaporder)
-					# buka.extractall(root)
+					if buka.chapinfo:
+						chaporder = buka.chapinfo
+						self.updatecomicdict(chaporder)
+						dtype = ifndef(dtype, ('chap', buka.comicname, chaporder.renamef(int(os.path.basename(root)))))
+					elif buka.comicid in self.comicdict:
+						dtype = ifndef(dtype, ('chap', buka.comicname, self.comicdict[buka.comicid].renamef(buka.chapid)))
 					extractndecode(buka, root, self.dwebpman)
-					dtype = ifndef(dtype, ('chap', buka.comicname, chaporder.renamef(int(os.path.basename(root)))))
 					buka.close()
 					removefiles.append(filename)
 				elif detectfile(filename) == 'buka':
 					logging.info('正在提取 ' + self.cutname(filename))
 					buka = BukaFile(filename)
-					chaporder = buka.chapinfo
-					if chaporder.comicid is None:
-						try:
-							chaporder.comicid = int(os.path.basename(root))
-						except ValueError:
-							pass
-					self.updatecomicdict(chaporder)
-					extractndecode(buka, os.path.join(root, os.path.splitext(name)[0]), self.dwebpman)
 					sp = splitpath(self.cutname(os.path.join(root, os.path.splitext(name)[0])))
-					self.nodes[sp] = ('chap', buka.comicname, chaporder.renamef(buka.chapid))
+					if buka.chapinfo:
+						chaporder = buka.chapinfo
+						self.updatecomicdict(chaporder)
+						self.nodes[sp] = ('chap', buka.comicname, chaporder.renamef(buka.chapid))
+					elif buka.comicid in self.comicdict:
+						self.nodes[sp] = ('chap', buka.comicname, self.comicdict[buka.comicid].renamef(buka.chapid))
+					extractndecode(buka, os.path.join(root, os.path.splitext(name)[0]), self.dwebpman)
 					try:
 						tempid = int(os.path.basename(root))
 						if tempid == buka.comicid:
@@ -324,18 +330,19 @@ class DirMan:
 					with open(filename, 'rb') as f, open(os.path.splitext(filename)[0] + '.webp', 'wb') as w:
 						f.seek(64)
 						shutil.copyfileobj(f, w)
-					frombup.add(os.path.splitext(filename)[0] + '.webp')
+					#frombup.add(os.path.splitext(filename)[0] + '.webp')
 					self.dwebpman.add(os.path.splitext(filename)[0], self.cutname(filename))
 					removefiles.append(filename)
 					#decodewebp(os.path.splitext(filename)[0])
 					#dtype = 'chap'
-				elif detectfile(filename) == 'webp':
-					if os.path.isfile(os.path.splitext(filename)[0]+'.bup') or filename in frombup:
-						continue
-					logging.info('加入队列 ' + self.cutname(filename))
-					self.dwebpman.add(os.path.splitext(filename)[0], self.cutname(filename))
-					#decodewebp(os.path.splitext(filename)[0])
-					#dtype = 'chap'
+				# No way! don't let webp's confuse the program.
+				#elif detectfile(filename) == 'webp':
+					#if os.path.isfile(os.path.splitext(filename)[0]+'.bup') or filename in frombup:
+						#continue
+					#logging.info('加入队列 ' + self.cutname(filename))
+					#self.dwebpman.add(os.path.splitext(filename)[0], self.cutname(filename))
+					##decodewebp(os.path.splitext(filename)[0])
+					##dtype = 'chap'
 				elif name == 'buka_store.sql':
 					try:
 						cdict = buildfromdb(filename)
@@ -440,7 +447,9 @@ def extractndecode(bukafile, path, dwebpman):
 
 def buildfromdb(dbname):
 	'''Build a dict of BukaFile objects from buka_store.sql file in
-	   iOS devices.'''
+	   iOS devices.
+	   use json.dump(<dictname>[id].chaporder) to generate chaporder.dat from db.
+	   '''
 	db = sqlite3.connect(dbname)
 	c = db.cursor()
 	initd = {'author': '', #mangainfo/author
@@ -616,6 +625,9 @@ class DwebpMan:
 			self.pool = threadpool.NoOrderedRequestManager(process,self.decodewebp,self.checklog,self.handle_thread_exception)
 		else:
 			self.pool = None
+	
+	def __repr__(self):
+		return "<DwebpMan supportwebp=%r dwebp=%r>" % (self.supportwebp, self.dwebp)
 
 	def add(self, basepath, displayname):
 		if self.pool:
@@ -671,7 +683,7 @@ class DwebpPILMan:
 		self.fail = True
 		logging.getLogger().error(str(request))
 		traceback.print_exception(*exc_info, file=logstr)
-	
+
 	def decodewebp(self, basepath, displayname):
 		im = Image.open(basepath + ".webp")
 		im.save(basepath + '.jpg', quality=90)
@@ -745,6 +757,7 @@ def main():
 	
 	logging.info('%s version %s' % (os.path.basename(sys.argv[0]), __version__))
 	logging.info("检查环境...")
+	logging.debug("SUPPORTPIL = " + str(SUPPORTPIL))
 	if args.dwebp == True:
 		dwebpman = DwebpMan(None, args.process)
 	elif args.dwebp:
@@ -766,7 +779,11 @@ def main():
 			extractndecode(buka, target, dwebpman)
 			if dwebpman.supportwebp:
 				dwebpman.wait()
-			movedir(target, os.path.join(os.path.dirname(target), buka.comicname + '-' + buka.chapinfo.renamef(buka.chapid)))
+			if buka.chapinfo:
+				movedir(target, os.path.join(os.path.dirname(target), buka.comicname + '-' + buka.chapinfo.renamef(buka.chapid)))
+			else:
+				# cannot get chapter name
+				movedir(target, os.path.join(os.path.dirname(target), buka.comicname + '-' + buka.chapid))
 			buka.close()
 		elif os.path.isdir(fn_buka):
 			logging.info('正在复制...')
@@ -774,7 +791,7 @@ def main():
 			dm = DirMan(target, dwebpman, dbdict)
 			dm.detectndecode()
 			if dwebpman.supportwebp:
-				logging.info("等待所有 dwebp 转换进程...")
+				logging.info("等待所有转换进程/线程...")
 				dwebpman.wait()
 			logging.info("完成转换。")
 			logging.info("正在重命名...")
@@ -802,5 +819,5 @@ if __name__ == '__main__':
 	except SystemExit:
 		pass
 	except:
-		logging.exception('Main thread exception.')
+		logging.exception('错误: 主线程异常退出。')
 		logexit()
