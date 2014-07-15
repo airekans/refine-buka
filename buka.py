@@ -3,7 +3,7 @@
 # Python 3.x
 
 __author__ = "Gumble <abcdoyle888@gmail.com>"
-__version__ = "2.0"
+__version__ = "2.1"
 
 '''
 布卡漫画转换工具
@@ -32,11 +32,11 @@ from collections import OrderedDict
 from subprocess import Popen, PIPE
 from platform import machine
 from multiprocessing import cpu_count
+
 try:
 	# requires Pillow with WebP support
 	from PIL import Image
 	import PIL.WebPImagePlugin
-	# if int(Image.PILLOW_VERSION.split('.')[0]) >= 2:
 	SUPPORTPIL = True
 except ImportError:
 	SUPPORTPIL = False
@@ -274,27 +274,28 @@ class DirMan:
 		for root, subFolders, files in os.walk(self.dirpath):
 			dtype = None
 			#frombup = set()
+			if 'chaporder.dat' in files:
+				filename = os.path.join(root, 'chaporder.dat')
+				chaporder = ComicInfo(json.load(open(filename, 'r')))
+				try:
+					tempid = int(os.path.basename(root))
+					if tempid == chaporder.comicid:
+						dtype = ifndef(dtype, ('comic', chaporder.comicname))
+					elif tempid in chaporder.chap:
+						dtype = ifndef(dtype, ('chap', chaporder.comicname, chaporder.renamef(tempid)))
+					elif chaporder.comicid is None:
+						dtype = ifndef(dtype, ('comic', chaporder.comicname))
+						chaporder.comicid = tempid
+					#else:
+						#dtype = None
+						#pass
+				except ValueError:
+					#dtype = None
+					pass
+				self.updatecomicdict(chaporder)
 			for name in files:
 				filename = os.path.join(root, name)
-				if name == 'chaporder.dat':
-					chaporder = ComicInfo(json.load(open(filename, 'r')))
-					try:
-						tempid = int(os.path.basename(root))
-						if tempid == chaporder.comicid:
-							dtype = ifndef(dtype, ('comic', chaporder.comicname))
-						elif tempid in chaporder.chap:
-							dtype = ifndef(dtype, ('chap', chaporder.comicname, chaporder.renamef(tempid)))
-						elif chaporder.comicid is None:
-							dtype = ifndef(dtype, ('comic', chaporder.comicname))
-							chaporder.comicid = tempid
-						#else:
-							#dtype = None
-							#pass
-					except ValueError:
-						#dtype = None
-						pass
-					self.updatecomicdict(chaporder)
-				elif name == 'pack.dat':
+				if detectfile(filename) == 'buka' and not subFolders and (name == 'pack.dat' or len(files)<3): # only a buka (and a chaporder)
 					logging.info('正在提取 ' + self.cutname(filename))
 					buka = BukaFile(filename)
 					if buka.chapinfo:
@@ -334,7 +335,6 @@ class DirMan:
 					self.dwebpman.add(os.path.splitext(filename)[0], self.cutname(filename))
 					removefiles.append(filename)
 					#decodewebp(os.path.splitext(filename)[0])
-					#dtype = 'chap'
 				# No way! don't let webp's confuse the program.
 				#elif detectfile(filename) == 'webp':
 					#if os.path.isfile(os.path.splitext(filename)[0]+'.bup') or filename in frombup:
@@ -342,7 +342,6 @@ class DirMan:
 					#logging.info('加入队列 ' + self.cutname(filename))
 					#self.dwebpman.add(os.path.splitext(filename)[0], self.cutname(filename))
 					##decodewebp(os.path.splitext(filename)[0])
-					##dtype = 'chap'
 				elif name == 'buka_store.sql':
 					try:
 						cdict = buildfromdb(filename)
@@ -661,6 +660,16 @@ class DwebpMan:
 		return (proc.returncode, stderr)
 
 class DwebpPILMan:
+	"""
+	Use threads of PIL.Image instead of dwebp to decode webps.
+	
+	Note: For now, this class is available for decoding, and the it's faster.
+	      BUT, use this for decoding hundreds of images will cause CPython
+	      memory leaks. gc / del / close() don't work. Using multiprocessing
+	      is a waste though.
+	      So, don't use it for a large number of images.
+	      If you can fix it, contact the __author__.
+	"""
 	def __init__(self, process):
 		self.supportwebp = True
 		self.fail = False
@@ -683,7 +692,7 @@ class DwebpPILMan:
 		self.fail = True
 		logging.getLogger().error(str(request))
 		traceback.print_exception(*exc_info, file=logstr)
-
+	
 	def decodewebp(self, basepath, displayname):
 		im = Image.open(basepath + ".webp")
 		im.save(basepath + '.jpg', quality=90)
@@ -729,7 +738,9 @@ def main():
 	parser.add_argument("-p", "--process", help="The max number of running dwebp's. (Default = CPU count)", default=cpus, type=int, metavar='NUM')
 	parser.add_argument("-s", "--same-dir", action='store_true', help="Change the default output dir to <input>/../output. Ignored when specifies <output>")
 	parser.add_argument("-l", "--log", action='store_true', help="Force logging to file.")
-	parser.add_argument("--dwebp", nargs='?', help="Perfer dwebp for decoding, and/or locate your own dwebp WebP decoder.", default=None, const=True)
+	parser.add_argument("--pil", action='store_true', help="Perfer PIL/Pillow for decoding, faster, and may cause memory leaks.")
+	# parser.add_argument("--dwebp", nargs='?', help="Perfer dwebp for decoding, and/or locate your own dwebp WebP decoder.", default=None, const=True)
+	parser.add_argument("--dwebp", help="Locate your own dwebp WebP decoder.", default=None)
 	parser.add_argument("-d", "--db", help="Locate the 'buka_store.sql' file in iOS devices, which provides infomation for renaming.", default=None, metavar='buka_store.sql')
 	parser.add_argument("input", help="The .buka file or the folder containing files downloaded by Buka, which is usually located in (Android) /sdcard/ibuka/down")
 	parser.add_argument("output", nargs='?', help="The output folder. (Default = ./output)", default=None)
@@ -757,15 +768,15 @@ def main():
 	
 	logging.info('%s version %s' % (os.path.basename(sys.argv[0]), __version__))
 	logging.info("检查环境...")
-	logging.debug("SUPPORTPIL = " + str(SUPPORTPIL))
-	if args.dwebp == True:
-		dwebpman = DwebpMan(None, args.process)
-	elif args.dwebp:
+	# if args.dwebp == True:
+		# dwebpman = DwebpMan(None, args.process)
+	if args.dwebp:
 		dwebpman = DwebpMan(args.dwebp, args.process)
-	elif SUPPORTPIL:
+	elif SUPPORTPIL and args.pil:
 		dwebpman = DwebpPILMan(args.process)
 	else:
 		dwebpman = DwebpMan(args.dwebp, args.process)
+	logging.debug("dwebpman = " + repr(dwebpman))
 
 	if os.path.isdir(target):
 		if detectfile(fn_buka) == "buka":
