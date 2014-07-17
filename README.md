@@ -1,6 +1,9 @@
 布卡漫画下载文件提取工具
-====================
+========================
 从布卡下载文件中抽取出漫画图片，并自动重命名其文件夹。
+
+## 2.1 版本
+* 修正几个重命名问题，dwebp解码优先。
 
 ## 2.0 版本
 * 将各类文件格式用对象表示，可访问属性及操作。
@@ -44,7 +47,10 @@
                         (默认 = CPU 核心数)
   -s, --same-dir        默认输出文件夹改为 <input>/../output.
                         当指定 <output> 时忽略
-  --dwebp [DWEBP]       dwebp 解码优先，并指定 dwebp 解码器位置
+  -l, --log             强制保存错误日志
+  --pil                 PIL/Pillow 解码优先，速度更快，但可能导致
+                        内存泄漏。(Windows 编译发行版本不可用)
+  --dwebp DWEBP         指定 dwebp 解码器位置
   -d buka_store.sql, --db buka_store.sql
                         指定 iOS 设备中 buka_store.sql 文件位置
                         此文件提供了额外的重命名信息
@@ -52,7 +58,8 @@
 
 python3 buka.py -h
 ```
-usage: buka.py [-h] [-p NUM] [-s] [--dwebp [DWEBP]] [-d buka_store.sql]
+usage: buka.py [-h] [-p NUM] [-s] [-l] [--pil] [--dwebp DWEBP]
+               [-d buka_store.sql]
                input [output]
 
 Converts comics downloaded by Buka.
@@ -70,8 +77,10 @@ optional arguments:
                         count)
   -s, --same-dir        Change the default output dir to <input>/../output.
                         Ignored when specifies <output>
-  --dwebp [DWEBP]       Perfer dwebp for decoding, and/or locate your own
-                        dwebp WebP decoder.
+  -l, --log             Force logging to file.
+  --pil                 Perfer PIL/Pillow for decoding, faster, and may cause
+                        memory leaks.
+  --dwebp DWEBP         Locate your own dwebp WebP decoder.
   -d buka_store.sql, --db buka_store.sql
                         Locate the 'buka_store.sql' file in iOS devices, which
                         provides infomation for renaming.
@@ -85,3 +94,5 @@ optional arguments:
 因为采用了 no WIC 版本的 dwebp.exe，对 Windows SP2 及以下操作系统已兼容。
 
 如果采用外部程序 dwebp 解码，由于仅将 .bup/webp 格式直接转换成 png 格式，所以文件大小偏大。用户可自行转换成 jpg 以减小文件体积( `python3 png2jpg.py 目录` )。
+
+PIL/Pillow 解码的实现存在内存泄漏，不适合处理上百张图片。
