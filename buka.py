@@ -759,7 +759,7 @@ def main():
 	else:
 		target = os.path.join(os.path.dirname(fn_buka),'output')
 	target = os.path.abspath(target)
-	logging.debug('target = ' + target)
+	logging.info('输出至 ' + target)
 	if not os.path.exists(target):
 		os.makedirs(target)
 	dbdict = {}
