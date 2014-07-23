@@ -3,7 +3,7 @@
 # Python 3.x
 
 __author__ = "Gumble <abcdoyle888@gmail.com>"
-__version__ = "2.1"
+__version__ = "2.2"
 
 '''
 布卡漫画转换工具
@@ -53,6 +53,8 @@ class ArgumentParserWait(argparse.ArgumentParser):
 		if message:
 			self._print_message(message, sys.stderr)
 		if os.name == 'nt':
+			sys.stderr.write("使用方法不正确。请将文件夹拖至软件图标使用。")
+			sys.stderr.flush()
 			time.sleep(NT_SLEEP_SEC)
 		sys.exit(status)
 
@@ -736,7 +738,8 @@ def main():
 
 	parser = ArgumentParserWait(description="Converts comics downloaded by Buka.")
 	parser.add_argument("-p", "--process", help="The max number of running dwebp's. (Default = CPU count)", default=cpus, type=int, metavar='NUM')
-	parser.add_argument("-s", "--same-dir", action='store_true', help="Change the default output dir to <input>/../output. Ignored when specifies <output>")
+	# parser.add_argument("-s", "--same-dir", action='store_true', help="Change the default output dir to <input>/../output. Ignored when specifies <output>")
+	parser.add_argument("-c", "--current-dir", action='store_true', help="Change the default output dir to ./output. Ignored when specifies <output>")
 	parser.add_argument("-l", "--log", action='store_true', help="Force logging to file.")
 	parser.add_argument("--pil", action='store_true', help="Perfer PIL/Pillow for decoding, faster, and may cause memory leaks.")
 	# parser.add_argument("--dwebp", nargs='?', help="Perfer dwebp for decoding, and/or locate your own dwebp WebP decoder.", default=None, const=True)
@@ -751,10 +754,10 @@ def main():
 	fn_buka = args.input
 	if args.output:
 		target = args.output
-	elif args.same_dir:
-		target = os.path.join(os.path.dirname(fn_buka),'output')
-	else:
+	elif args.current_dir:
 		target = 'output'
+	else:
+		target = os.path.join(os.path.dirname(fn_buka),'output')
 	target = os.path.abspath(target)
 	logging.debug('target = ' + target)
 	if not os.path.exists(target):
