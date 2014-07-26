@@ -405,15 +405,17 @@ def movedir(src, dst):
 
 def tryremove(filename):
 	# just for the low speed of Windows
-	for att in range(5):
+	# file lock is not released by System(4)
+	for att in range(10):
 		try:
 			os.remove(filename)
 			break
 		except PermissionError as ex:
-			logging.debug("Delete failed, trying...")
-			if att == 4:
+			logging.debug("Delete failed, trying... " + str(att+1))
+			if att == 9:
+				logging.error("删除文件失败超过重试次数。")
 				raise ex
-			time.sleep(0.25)
+			time.sleep(0.2 * att)
 
 def splitpath(path):
 	folders = []
