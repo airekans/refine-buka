@@ -3,13 +3,20 @@
 # Python 3.x
 
 __author__ = "Gumble <abcdoyle888@gmail.com>"
-__version__ = "2.2"
+__version__ = "2.22"
 
 '''
-布卡漫画转换工具
-支持 .buka, .bup.view, .jpg.view
+Extract images downloaded by Buka.
 
-API: import buka
+Supports .buka, .bup.view, .jpg.view formats.
+To use:   buka.py input [output]
+For help: buka.py -h
+API:      import buka
+Main features:
+  * BukaFile    Reads the buka file.
+  * ComicInfo   Get comic information from chaporder.dat.
+  * DirMan      Manages directories for converting and renaming.
+  * buildfromdb Build a dict of BukaFile objects from buka_store.sql
 '''
 
 import sys
@@ -41,7 +48,7 @@ try:
 except ImportError:
 	SUPPORTPIL = False
 
-NT_SLEEP_SEC = 6
+NT_SLEEP_SEC = 7
 logstr = StringIO()
 
 class BadBukaFile(Exception):
@@ -59,11 +66,13 @@ class ArgumentParserWait(argparse.ArgumentParser):
 		sys.exit(status)
 
 class tTree():
-	'''The Tree format:
-	   tTree[('foo', 'bar', 'baz')] = 42
-	   which auto creates:
-	   tTree[('foo', 'bar')] = None
-	   tTree[('foo', )] = None
+	'''
+	The tTree format for directories.
+	
+	tTree[('foo', 'bar', 'baz')] = 42
+	which auto creates:
+	tTree[('foo', 'bar')] = None
+	tTree[('foo', )] = None
 	'''
 	def __init__(self):
 		self.d = {}
@@ -130,13 +139,11 @@ class BukaFile:
 			name = buff[pos:end].decode(encoding='utf-8', errors='ignore')
 			pos = end + 1
 			self.files[name] = (pointer, size)
-		try:
+		if 'chaporder.dat' in self.files:
 			self.fp.seek(self.files['chaporder.dat'][0])
 			self._chaporderdat = self.fp.read(self.files['chaporder.dat'][1])
-			self.chapinfo = ComicInfo(json.loads(self._chaporderdat.decode('utf-8')))
-			if self.chapinfo.comicid is None:
-				chapinfo.comicid = self.comicid
-		except KeyError:
+			self.chapinfo = ComicInfo(json.loads(self._chaporderdat.decode('utf-8')), self.comicid)
+		else:
 			self._chaporderdat, self.chapinfo = None, None
 			
 	
@@ -183,8 +190,8 @@ class BukaFile:
 			self.extract(key, os.path.join(path, key))
 	
 	def __repr__(self):
-		return "<BukaFile comicid=%r chapid=%r comicname=%r>" % \
-			(self.comicid, self.chapid, self.comicname)
+		return "<BukaFile comicid=%r comicname=%r chapid=%r>" % \
+			(self.comicid, self.comicname, self.chapid)
 	
 	def close(self):
 		self.fp.close()
@@ -193,8 +200,11 @@ class BukaFile:
 		self.fp.close()
 
 class ComicInfo:
-	'''This class represents the items in chaporder.dat,
-	   and provides convenient access to chapters.
+	'''
+	Get comic information from chaporder.dat.
+	
+	This class represents the items in chaporder.dat,
+	and provides convenient access to chapters.
 	'''
 	def __init__(self, chaporder, comicid=None):
 		self.chaporder = chaporder
@@ -240,10 +250,13 @@ class ComicInfo:
 		return "<ComicInfo comicid=%r comicname=%r>" % (self.comicid, self.comicname)
 
 class DirMan:
-	'''This class mainly maintains three items:
-	   self.nodes - represents the directory tree and what it contains.
-	   self.comicdict - maintains the dictionary of known comic entries.
-	   self.dwebpman - puts decode requests
+	'''
+	Manages directories for converting and renaming.
+	
+	This class mainly maintains three items:
+	* self.nodes - represents the directory tree and what it contains.
+	* self.comicdict - maintains the dictionary of known comic entries.
+	* self.dwebpman - puts decode requests
 	'''
 	def __init__(self, dirpath, dwebpman, comicdict={}):
 		self.dirpath = dirpath
@@ -255,8 +268,9 @@ class DirMan:
 		return "<DirMan dirpath=%r>" % self.dirpath
 	
 	def cutname(self, filename):
-		'''cut the filename to be relative to the base directory name.
-		   avoid renaming outer directories.
+		'''
+		Cuts the filename to be relative to the base directory name
+		to avoid renaming outer directories.
 		'''
 		return os.path.relpath(filename, os.path.dirname(self.dirpath))
 	
@@ -268,8 +282,9 @@ class DirMan:
 			self.comicdict[comicinfo.comicid] = comicinfo
 	
 	def detectndecode(self):
-		'''detect what the directory contains, attach it to its contents,
-		   and decode bup/webp images.
+		'''
+		Detects what the directory contains, attach it to its contents,
+		and decode bup/webp images.
 		'''
 		ifndef = lambda x,y: x if x else y
 		removefiles = []
@@ -288,16 +303,13 @@ class DirMan:
 					elif chaporder.comicid is None:
 						dtype = ifndef(dtype, ('comic', chaporder.comicname))
 						chaporder.comicid = tempid
-					#else:
-						#dtype = None
-						#pass
 				except ValueError:
-					#dtype = None
 					pass
 				self.updatecomicdict(chaporder)
 			for name in files:
 				filename = os.path.join(root, name)
-				if detectfile(filename) == 'buka' and not subFolders and (name == 'pack.dat' or len(files)<3): # only a buka (and a chaporder)
+				if detectfile(filename) == 'buka' and not subFolders and (name == 'pack.dat' or len(files)<4):
+					# only a buka (and a chaporder) (and an index2)
 					logging.info('正在提取 ' + self.cutname(filename))
 					buka = BukaFile(filename)
 					if buka.chapinfo:
@@ -377,7 +389,7 @@ class DirMan:
 			tryremove(filename)
 	
 	def renamedirs(self):
-		'''do the renaming.'''
+		'''Does the renaming.'''
 		ls = sorted(self.nodes.keys(), key=len, reverse=True)
 		for i in ls:
 			this = self.nodes.get(i)
@@ -394,6 +406,7 @@ class DirMan:
 					movedir(origpath, os.path.join(basepath, this[1] + '-' + this[2]))
 	
 def movedir(src, dst):
+	'''Avoid conflicts when moving into an exist directory.'''
 	if src == dst:
 		pass
 	elif os.path.isdir(src) and os.path.isdir(dst):
@@ -404,8 +417,12 @@ def movedir(src, dst):
 		shutil.move(src, dst)
 
 def tryremove(filename):
-	# just for the low speed of Windows
-	# file lock is not released by System(4)
+	'''
+	Tries to remove a file until it's not locked.
+	
+	It's just for the low speed of Windows.
+	The exceptions are caused by the file lock is not released by System(4)
+	'''
 	for att in range(10):
 		try:
 			os.remove(filename)
@@ -418,6 +435,13 @@ def tryremove(filename):
 			time.sleep(0.2 * att)
 
 def splitpath(path):
+	'''
+	Splits a path to a list.
+	>>> p = splitpath('a/b/c/d/')
+	# p = ['a', 'b', 'c', 'd']
+	>>> p = splitpath('/a/b/c/d')
+	# p = ['/', 'a', 'b', 'c', 'd']
+	'''
 	folders = []
 	path = path.rstrip(r'\\').rstrip(r'/')
 	while 1:
@@ -432,7 +456,7 @@ def splitpath(path):
 	return folders
 
 def extractndecode(bukafile, path, dwebpman):
-	'''for extracting buka files'''
+	'''Extracts buka files and puts decode requests.'''
 	if not os.path.exists(path):
 		os.makedirs(path)
 	for key in bukafile.files:
@@ -449,10 +473,10 @@ def extractndecode(bukafile, path, dwebpman):
 				f.write(bukafile[key])
 
 def buildfromdb(dbname):
-	'''Build a dict of BukaFile objects from buka_store.sql file in
-	   iOS devices.
-	   use json.dump(<dictname>[id].chaporder) to generate chaporder.dat from db.
-	   '''
+	'''
+	Build a dict of BukaFile objects from buka_store.sql file in iOS devices.
+	use json.dump(<dictname>[id].chaporder) to generate chaporder.dat from db.
+	'''
 	db = sqlite3.connect(dbname)
 	c = db.cursor()
 	initd = {'author': '', #mangainfo/author
@@ -530,7 +554,7 @@ def buildfromdb(dbname):
 	return dict(map(lambda k: (k, ComicInfo(d[k], k)), d))
 
 def detectfile(filename):
-	"""Tests file format."""
+	'''Tests file format.'''
 	if not os.path.exists(filename):
 		return None
 	if os.path.isdir(filename):
@@ -579,7 +603,7 @@ def copytree(src, dst, symlinks=False, ignore=None):
 		d = os.path.join(dst, item)
 		if os.path.isdir(s):
 			copytree(s, d, symlinks, ignore)
-		elif detectfile(s) in ('index2','chaporder','buka','bup','jpg','png','sqlite3','webp'): # whitelist
+		elif detectfile(s) in ('index2','chaporder','buka','bup','jpg','png','sqlite3'): # whitelist ,'webp'
 			if os.path.splitext(s)[1] == '.view':
 				d = os.path.splitext(d)[0]
 			if not os.path.isfile(d) or os.stat(src).st_mtime - os.stat(dst).st_mtime > 1:
@@ -588,6 +612,9 @@ def copytree(src, dst, symlinks=False, ignore=None):
 		os.rmdir(dst)
 
 class DwebpMan:
+	'''
+	Use a pool of dwebp's to decode webps.
+	'''
 	def __init__(self, dwebppath, process):
 		programdir = os.path.dirname(os.path.abspath(sys.argv[0]))
 		self.fail = False
@@ -633,6 +660,7 @@ class DwebpMan:
 		return "<DwebpMan supportwebp=%r dwebp=%r>" % (self.supportwebp, self.dwebp)
 
 	def add(self, basepath, displayname):
+		'''Ignores if not supported.'''
 		if self.pool:
 			self.pool.putRequest([basepath, displayname])
 
@@ -738,6 +766,7 @@ def main():
 	except NotImplementedError:
 		cpus = 1
 
+	logging.info('%s version %s' % (os.path.basename(sys.argv[0]), __version__))
 	parser = ArgumentParserWait(description="Converts comics downloaded by Buka.")
 	parser.add_argument("-p", "--process", help="The max number of running dwebp's. (Default = CPU count)", default=cpus, type=int, metavar='NUM')
 	# parser.add_argument("-s", "--same-dir", action='store_true', help="Change the default output dir to <input>/../output. Ignored when specifies <output>")
@@ -771,7 +800,6 @@ def main():
 		except:
 			logging.error('指定的数据库文件不是有效的 iOS 设备中的 buka_store.sql 数据库文件。提取过程将继续。')
 	
-	logging.info('%s version %s' % (os.path.basename(sys.argv[0]), __version__))
 	logging.info("检查环境...")
 	# if args.dwebp == True:
 		# dwebpman = DwebpMan(None, args.process)
@@ -813,7 +841,7 @@ def main():
 			logging.info("正在重命名...")
 			dm.renamedirs()
 		else:
-			logging.critical("输入必须为 buka 文件或一个文件夹。请使用 import buka 来获取 API 接口。")
+			logging.critical("输入必须为 buka 文件或一个文件夹。")
 			if not os.listdir(target):
 				os.rmdir(target)
 			logexit()
@@ -821,7 +849,7 @@ def main():
 			logexit()
 		logging.info('完成。')
 		if not dwebpman.supportwebp:
-			logging.warning('警告: .bup 格式文件无法提取。')
+			logging.warning('警告: .bup 格式文件无法转换，保留为 webp 格式。')
 			logexit()
 		if args.log:
 			logexit()
