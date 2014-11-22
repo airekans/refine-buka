@@ -286,7 +286,8 @@ class DirMan:
 		Detects what the directory contains, attach it to its contents,
 		and decode bup/webp images.
 		'''
-		ifndef = lambda x,y: x if x else y
+		# ifndef = lambda x,y: x if x else y
+		#        ==> x or y
 		removefiles = []
 		for root, subFolders, files in os.walk(self.dirpath):
 			dtype = None
@@ -297,11 +298,11 @@ class DirMan:
 				try:
 					tempid = int(os.path.basename(root))
 					if tempid == chaporder.comicid:
-						dtype = ifndef(dtype, ('comic', chaporder.comicname))
+						dtype = dtype or ('comic', chaporder.comicname)
 					elif tempid in chaporder.chap:
-						dtype = ifndef(dtype, ('chap', chaporder.comicname, chaporder.renamef(tempid)))
+						dtype = dtype or ('chap', chaporder.comicname, chaporder.renamef(tempid))
 					elif chaporder.comicid is None:
-						dtype = ifndef(dtype, ('comic', chaporder.comicname))
+						dtype = dtype or ('comic', chaporder.comicname)
 						chaporder.comicid = tempid
 				except ValueError:
 					pass
@@ -315,9 +316,9 @@ class DirMan:
 					if buka.chapinfo:
 						chaporder = buka.chapinfo
 						self.updatecomicdict(chaporder)
-						dtype = ifndef(dtype, ('chap', buka.comicname, chaporder.renamef(int(os.path.basename(root)))))
+						dtype = dtype or ('chap', buka.comicname, chaporder.renamef(int(os.path.basename(root))))
 					elif buka.comicid in self.comicdict:
-						dtype = ifndef(dtype, ('chap', buka.comicname, self.comicdict[buka.comicid].renamef(buka.chapid)))
+						dtype = dtype or ('chap', buka.comicname, self.comicdict[buka.comicid].renamef(buka.chapid))
 					extractndecode(buka, root, self.dwebpman)
 					buka.close()
 					removefiles.append(filename)
@@ -335,7 +336,7 @@ class DirMan:
 					try:
 						tempid = int(os.path.basename(root))
 						if tempid == buka.comicid:
-							dtype = ifndef(dtype, ('comic', buka.comicname))
+							dtype = dtype or ('comic', buka.comicname)
 					except ValueError:
 						pass
 					buka.close()
@@ -361,7 +362,7 @@ class DirMan:
 						cdict = buildfromdb(filename)
 						for key in cdict:
 							self.updatecomicdict(cdict[key])
-					except:
+					except Exception:
 						logging.error('不是有效的数据库: ' + self.cutname(filename))
 				#else:
 					#dtype = 'unk'
@@ -739,7 +740,7 @@ def logexit(err=True):
 		try:
 			with open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])),'bukaex.log'), 'a') as f:
 				f.write(logstr.getvalue())
-		except:
+		except Exception:
 			with open('bukaex.log', 'a') as f:
 				f.write(logstr.getvalue())
 		print('如果不是使用方法错误，请发送错误报告 bukaex.log 给作者 ' + __author__)
@@ -797,10 +798,11 @@ def main():
 	if args.db:
 		try:
 			dbdict = buildfromdb(args.db)
-		except:
+		except Exception:
 			logging.error('指定的数据库文件不是有效的 iOS 设备中的 buka_store.sql 数据库文件。提取过程将继续。')
 	
 	logging.info("检查环境...")
+	logging.debug(repr(os.uname()))
 	# if args.dwebp == True:
 		# dwebpman = DwebpMan(None, args.process)
 	if args.dwebp:
@@ -862,6 +864,6 @@ if __name__ == '__main__':
 		main()
 	except SystemExit:
 		pass
-	except:
+	except Exception:
 		logging.exception('错误: 主线程异常退出。')
 		logexit()
