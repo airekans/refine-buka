@@ -35,7 +35,7 @@ import logging, logging.config
 import traceback
 import threadpool
 from io import StringIO
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from subprocess import Popen, PIPE
 from platform import machine
 from multiprocessing import cpu_count
@@ -68,7 +68,7 @@ class ArgumentParserWait(argparse.ArgumentParser):
 class tTree():
 	'''
 	The tTree format for directories.
-	
+
 	tTree[('foo', 'bar', 'baz')] = 42
 	which auto creates:
 	tTree[('foo', 'bar')] = None
@@ -76,13 +76,13 @@ class tTree():
 	'''
 	def __init__(self):
 		self.d = {}
-	
+
 	def __len__(self):
 		return len(self.d)
-	
+
 	def __getitem__(self, key):
 		return self.d[tuple(key)]
-	
+
 	def __setitem__(self, key, value):
 		key = tuple(key)
 		if key not in self.d:
@@ -90,26 +90,26 @@ class tTree():
 				if key[:i] not in self.d:
 					self.d[key[:i]] = None
 		self.d[key] = value
-	
+
 	def __delitem__(self, key):
 		del self.d[tuple(key)]
 
 	def __iter__(self):
 		return iter(self.d)
-	
+
 	def __contains__(self, item):
 		return tuple(item) in self.d
-	
+
 	def keys(self):
 		return self.d.keys()
-	
+
 	def get(self, key, default=None):
 		key = tuple(key)
 		if key in self.d:
 			return self.d[key]
 		else:
 			return default
-	
+
 	def __repr__(self):
 		return repr(self.d)
 
@@ -121,6 +121,7 @@ class BukaFile:
 		buff = f.read(128)
 		if buff[0:4] != b'buka':
 			raise BadBukaFile('not a buka file')
+		self.version = struct.unpack('<II', buff[4:12])
 		self.comicid = struct.unpack('<I', buff[12:16])[0]
 		self.chapid = struct.unpack('<I', buff[16:20])[0]
 		pos = buff.find(b'\x00', 20)
@@ -145,11 +146,11 @@ class BukaFile:
 			self.chapinfo = ComicInfo(json.loads(self._chaporderdat.decode('utf-8')), self.comicid)
 		else:
 			self._chaporderdat, self.chapinfo = None, None
-			
-	
+
+
 	def __len__(self):
 		return len(self.files)
-	
+
 	def __getitem__(self, key):
 		if key in self.files:
 			if key == 'chaporder.dat' and self._chaporderdat:
@@ -159,16 +160,16 @@ class BukaFile:
 			return self.fp.read(index[1])
 		else:
 			raise KeyError(key)
-	
+
 	def __iter__(self):
 		return iter(self.files)
-	
+
 	def __contains__(self, item):
 		return item in self.files
-	
+
 	def keys(self):
 		return self.files.keys()
-	
+
 	def getfile(self, key, offset=0):
 		'''offset is for bup files.'''
 		if key == 'chaporder.dat' and self._chaporderdat:
@@ -176,33 +177,33 @@ class BukaFile:
 		index = self.files[key]
 		self.fp.seek(index[0] + offset)
 		return self.fp.read(index[1] - offset)
-	
+
 	def extract(self, key, path):
 		with open(path, 'wb') as w:
 			index = self.files[key]
 			self.fp.seek(index[0])
 			w.write(self.fp.read(index[1]))
-	
+
 	def extractall(self, path):
 		if not os.path.exists(path):
 			os.makedirs(path)
 		for key in self.files:
 			self.extract(key, os.path.join(path, key))
-	
+
 	def __repr__(self):
 		return "<BukaFile comicid=%r comicname=%r chapid=%r>" % \
 			(self.comicid, self.comicname, self.chapid)
-	
+
 	def close(self):
 		self.fp.close()
-	
+
 	def __del__(self):
 		self.fp.close()
 
 class ComicInfo:
 	'''
 	Get comic information from chaporder.dat.
-	
+
 	This class represents the items in chaporder.dat,
 	and provides convenient access to chapters.
 	'''
@@ -220,7 +221,7 @@ class ComicInfo:
 			except ValueError:
 				logging.debug("can't get comicid from url: %s", chaporder['logo'])
 				self.comicid = None
-	
+
 	def renamef(self, cid):
 		if cid in self.chap:
 			if self.chap[cid]['title']:
@@ -236,13 +237,13 @@ class ComicInfo:
 					return self.chap[cid]['idx'].zfill(3)
 		else:
 			return str(cid)
-	
+
 	def __getitem__(self, key):
 		if key in self.chaporder:
 			return self.chaporder[key]
 		else:
 			raise KeyError(key)
-	
+
 	def __contains__(self, item):
 		return item in self.chaporder
 
@@ -252,7 +253,7 @@ class ComicInfo:
 class DirMan:
 	'''
 	Manages directories for converting and renaming.
-	
+
 	This class mainly maintains three items:
 	* self.nodes - represents the directory tree and what it contains.
 	* self.comicdict - maintains the dictionary of known comic entries.
@@ -263,24 +264,24 @@ class DirMan:
 		self.nodes = tTree()
 		self.dwebpman = dwebpman
 		self.comicdict = comicdict
-	
+
 	def __repr__(self):
 		return "<DirMan dirpath=%r>" % self.dirpath
-	
+
 	def cutname(self, filename):
 		'''
 		Cuts the filename to be relative to the base directory name
 		to avoid renaming outer directories.
 		'''
 		return os.path.relpath(filename, os.path.dirname(self.dirpath))
-	
+
 	def updatecomicdict(self, comicinfo):
 		if comicinfo.comicid in self.comicdict:
 			self.comicdict[comicinfo.comicid].chaporder.update(comicinfo.chaporder)
 			self.comicdict[comicinfo.comicid].chap.update(comicinfo.chap)
 		else:
 			self.comicdict[comicinfo.comicid] = comicinfo
-	
+
 	def detectndecode(self):
 		'''
 		Detects what the directory contains, attach it to its contents,
@@ -388,7 +389,7 @@ class DirMan:
 		# just for the low speed of Windows
 		for filename in removefiles:
 			tryremove(filename)
-	
+
 	def renamedirs(self):
 		'''Does the renaming.'''
 		ls = sorted(self.nodes.keys(), key=len, reverse=True)
@@ -405,7 +406,7 @@ class DirMan:
 						movedir(origpath, os.path.join(basepath, this[2]))
 				else:
 					movedir(origpath, os.path.join(basepath, this[1] + '-' + this[2]))
-	
+
 def movedir(src, dst):
 	'''Avoid conflicts when moving into an exist directory.'''
 	if src == dst:
@@ -420,7 +421,7 @@ def movedir(src, dst):
 def tryremove(filename):
 	'''
 	Tries to remove a file until it's not locked.
-	
+
 	It's just for the low speed of Windows.
 	The exceptions are caused by the file lock is not released by System(4)
 	'''
@@ -630,7 +631,7 @@ class DwebpMan:
 			self.dwebp = os.path.join(programdir, 'dwebp_' + bit + '.exe')
 		else:
 			self.dwebp = os.path.join(programdir, 'dwebp_' + bit)
-		
+
 		nul = open(os.devnull, 'w')
 		try:
 			p = Popen(self.dwebp, stdout=nul, stderr=nul).wait()
@@ -656,7 +657,7 @@ class DwebpMan:
 			self.pool = threadpool.NoOrderedRequestManager(process,self.decodewebp,self.checklog,self.handle_thread_exception)
 		else:
 			self.pool = None
-	
+
 	def __repr__(self):
 		return "<DwebpMan supportwebp=%r dwebp=%r>" % (self.supportwebp, self.dwebp)
 
@@ -695,7 +696,7 @@ class DwebpMan:
 class DwebpPILMan:
 	"""
 	Use threads of PIL.Image instead of dwebp to decode webps.
-	
+
 	Note: For now, this class is available for decoding, and the it's faster.
 	      BUT, use this for decoding hundreds of images will cause CPython
 	      memory leaks. gc / del / close() don't work. Using multiprocessing
@@ -725,7 +726,40 @@ class DwebpPILMan:
 		self.fail = True
 		logging.getLogger().error(str(request))
 		traceback.print_exception(*exc_info, file=logstr)
-	
+
+	def decodewebp(self, basepath, displayname):
+		im = Image.open(basepath + ".webp")
+		im.save(basepath + '.jpg', quality=90)
+		im.close()
+		del im
+		tryremove(basepath + ".webp")
+		return True
+
+class DwebpSingleThreadPILMan:
+	"""
+	Use PIL.Image instead of dwebp to decode webps, using the main thread.
+	"""
+	def __init__(self, process):
+		self.supportwebp = True
+		self.fail = False
+
+	def add(self, basepath, displayname):
+		try:
+			self.decodewebp(self, basepath, displayname)
+		except Exception as ex:
+			self.fail = True
+			logging.getLogger().exception(str(request))
+		self.checklog(self, request, result)
+
+	def wait(self):
+		pass
+
+	def checklog(self, request, result):
+		if result:
+			logging.info("完成转换 %s", request.args[1])
+		else:
+			logging.error("解码错误: %s", request.args[1])
+
 	def decodewebp(self, basepath, displayname):
 		im = Image.open(basepath + ".webp")
 		im.save(basepath + '.jpg', quality=90)
@@ -800,7 +834,7 @@ def main():
 			dbdict = buildfromdb(args.db)
 		except Exception:
 			logging.error('指定的数据库文件不是有效的 iOS 设备中的 buka_store.sql 数据库文件。提取过程将继续。')
-	
+
 	logging.info("检查环境...")
 	logging.debug(repr(os.uname()))
 	# if args.dwebp == True:
@@ -808,7 +842,9 @@ def main():
 	if args.dwebp:
 		dwebpman = DwebpMan(args.dwebp, args.process)
 	elif SUPPORTPIL and args.pil:
-		dwebpman = DwebpPILMan(args.process)
+		#dwebpman = DwebpPILMan(args.process)
+		# The solution now
+		dwebpman = DwebpSingleThreadPILMan(args.process)
 	else:
 		dwebpman = DwebpMan(args.dwebp, args.process)
 	logging.debug("dwebpman = " + repr(dwebpman))
