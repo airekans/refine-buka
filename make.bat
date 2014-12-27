@@ -1,7 +1,9 @@
 @echo off
 echo Building...
-C:\Python33\python.exe C:\Python33\Scripts\cxfreeze --target-dir=dist -OO --exclude-modules=PIL,PIL.Image,Image --icon=buka.ico buka.py
-C:\Python33\python.exe C:\Python33\Scripts\cxfreeze --target-dir=dist -OO png2jpg.py
+C:\Python34\python.exe C:\Python34\Scripts\cxfreeze --target-dir=dist -OO --icon=buka.ico buka.py
+C:\Python34\python.exe C:\Python34\Scripts\cxfreeze --target-dir=dist -OO png2jpg.py
+copy dwebp_32.exe dist/dwebp_32.exe
+copy dwebp_64.exe dist/dwebp_64.exe
 echo.
 echo Done.
 pause

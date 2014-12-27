@@ -828,7 +828,7 @@ def main():
 			'root':{'handlers':('console', 'strlogger'), 'level':'DEBUG'}}
 	logging.config.dictConfig(LOG_CONFIG)
 	try:
-		cpus = min(cpu_count()//2 if cpu_count() else 1, 1)
+		cpus = max(cpu_count()//2 if cpu_count() else 1, 1)
 	except NotImplementedError:
 		cpus = 1
 
@@ -871,7 +871,7 @@ def main():
 			logging.error('指定的数据库文件不是有效的 iOS 设备中的 buka_store.sql 数据库文件。提取过程将继续。')
 
 	logging.info("检查环境...")
-	logging.debug(repr(os.uname()))
+	#logging.debug(repr(os.uname()))
 	logging.debug('SUPPORTPIL = %r' % SUPPORTPIL)
 	if args.dwebp:
 		dwebpman = DwebpMan(args.dwebp, args.process, SUPPORTPIL)
