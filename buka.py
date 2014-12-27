@@ -3,7 +3,7 @@
 # Python 3.x
 
 __author__ = "Gumble <abcdoyle888@gmail.com>"
-__version__ = "2.22"
+__version__ = "2.3"
 
 '''
 Extract images downloaded by Buka.
@@ -121,6 +121,9 @@ class BukaFile:
 		buff = f.read(128)
 		if buff[0:4] != b'buka':
 			raise BadBukaFile('not a buka file')
+		# I guess it's version
+		# [4:8] is more likely a (minor) version
+		# [9:12] may be a major version or "file type"
 		self.version = struct.unpack('<II', buff[4:12])
 		self.comicid = struct.unpack('<I', buff[12:16])[0]
 		self.chapid = struct.unpack('<I', buff[16:20])[0]
@@ -216,9 +219,10 @@ class ComicInfo:
 		if comicid:
 			self.comicid = comicid
 		else:
-			try:
-				self.comicid = int(chaporder['logo'].split('/')[-1].split('-')[0])
-			except ValueError:
+			self.comicid = chaporder['logo'].split('/')[-1].split('-')[0]
+			if self.comicid.isdigit():
+				self.comicid = int(self.comicid)
+			else:
 				logging.debug("can't get comicid from url: %s", chaporder['logo'])
 				self.comicid = None
 
@@ -296,8 +300,9 @@ class DirMan:
 			if 'chaporder.dat' in files:
 				filename = os.path.join(root, 'chaporder.dat')
 				chaporder = ComicInfo(json.load(open(filename, 'r')))
-				try:
-					tempid = int(os.path.basename(root))
+				tempid = os.path.basename(root)
+				if tempid.isdigit():
+					tempid = int(tempid)
 					if tempid == chaporder.comicid:
 						dtype = dtype or ('comic', chaporder.comicname)
 					elif tempid in chaporder.chap:
@@ -305,8 +310,6 @@ class DirMan:
 					elif chaporder.comicid is None:
 						dtype = dtype or ('comic', chaporder.comicname)
 						chaporder.comicid = tempid
-				except ValueError:
-					pass
 				self.updatecomicdict(chaporder)
 			for name in files:
 				filename = os.path.join(root, name)
@@ -317,7 +320,10 @@ class DirMan:
 					if buka.chapinfo:
 						chaporder = buka.chapinfo
 						self.updatecomicdict(chaporder)
-						dtype = dtype or ('chap', buka.comicname, chaporder.renamef(int(os.path.basename(root))))
+						tempid = os.path.basename(root)
+						if tempid.isdigit():
+							tempid = int(tempid)
+							dtype = dtype or ('chap', buka.comicname, chaporder.renamef(tempid))
 					elif buka.comicid in self.comicdict:
 						dtype = dtype or ('chap', buka.comicname, self.comicdict[buka.comicid].renamef(buka.chapid))
 					extractndecode(buka, root, self.dwebpman)
@@ -334,12 +340,11 @@ class DirMan:
 					elif buka.comicid in self.comicdict:
 						self.nodes[sp] = ('chap', buka.comicname, self.comicdict[buka.comicid].renamef(buka.chapid))
 					extractndecode(buka, os.path.join(root, os.path.splitext(name)[0]), self.dwebpman)
-					try:
-						tempid = int(os.path.basename(root))
+					tempid = os.path.basename(root)
+					if tempid.isdigit():
+						tempid = int(tempid)
 						if tempid == buka.comicid:
 							dtype = dtype or ('comic', buka.comicname)
-					except ValueError:
-						pass
 					buka.close()
 					removefiles.append(filename)
 				elif detectfile(filename) == 'bup':
@@ -351,6 +356,9 @@ class DirMan:
 					self.dwebpman.add(os.path.splitext(filename)[0], self.cutname(filename))
 					removefiles.append(filename)
 					#decodewebp(os.path.splitext(filename)[0])
+				elif detectfile(filename) == 'tmp':
+					logging.info('已忽略 ' + self.cutname(filename))
+					removefiles.append(filename)
 				# No way! don't let webp's confuse the program.
 				#elif detectfile(filename) == 'webp':
 					#if os.path.isfile(os.path.splitext(filename)[0]+'.bup') or filename in frombup:
@@ -371,20 +379,18 @@ class DirMan:
 				#pass
 			sp = splitpath(self.cutname(root))
 			if not dtype:
-				try:
-					tempid = int(os.path.basename(root))
+				tempid = os.path.basename(root)
+				if tempid.isdigit():
+					tempid = int(tempid)
 					if tempid in self.comicdict:
 						dtype = ('comic', self.comicdict[tempid].comicname)
 					else:
-						try:
-							tempid2 = int(os.path.basename(os.path.dirname(root)))
+						tempid2 = os.path.basename(os.path.dirname(root))
+						if tempid2.isdigit():
+							tempid2 = int(tempid2)
 							if tempid2 in self.comicdict:
 								if tempid in self.comicdict[tempid2].chap:
 									dtype = ('chap', self.comicdict[tempid2].comicname, self.comicdict[tempid2].renamef(tempid))
-						except ValueError:
-							pass
-				except ValueError:
-					pass
 			self.nodes[sp] = dtype
 		# just for the low speed of Windows
 		for filename in removefiles:
@@ -422,7 +428,7 @@ def tryremove(filename):
 	'''
 	Tries to remove a file until it's not locked.
 
-	It's just for the low speed of Windows.
+	It's just for the LOW speed of Windows.
 	The exceptions are caused by the file lock is not released by System(4)
 	'''
 	for att in range(10):
@@ -578,6 +584,8 @@ def detectfile(filename):
 			return 'bup'
 		elif ext2 == '.png':
 			return 'png'
+	elif ext == '.tmp':
+		return 'tmp'
 	with open(filename, 'rb') as f:
 		h = f.read(32)
 	if h[6:10] in (b'JFIF', b'Exif'):
@@ -617,7 +625,8 @@ class DwebpMan:
 	'''
 	Use a pool of dwebp's to decode webps.
 	'''
-	def __init__(self, dwebppath, process):
+	def __init__(self, dwebppath, process, pilconvert=False):
+		self.pilconvert = pilconvert
 		programdir = os.path.dirname(os.path.abspath(sys.argv[0]))
 		self.fail = False
 		if '64' in machine():
@@ -690,6 +699,15 @@ class DwebpMan:
 			#logging.info("dwebp: " + stdout)
 		if stderr:
 			stderr = stderr.decode(errors='ignore')
+		if self.pilconvert:
+			try:
+				im = Image.open(basepath + ".png")
+				im.save(basepath + '.jpg', quality=90)
+				im.close()
+				del im
+				tryremove(basepath + ".png")
+			except Exception as ex:
+				logging.exception('Convert to jpg failed.')
 		tryremove(basepath + ".webp")
 		return (proc.returncode, stderr)
 
@@ -700,7 +718,7 @@ class DwebpPILMan:
 	Note: For now, this class is available for decoding, and the it's faster.
 	      BUT, use this for decoding hundreds of images will cause CPython
 	      memory leaks. gc / del / close() don't work. Using multiprocessing
-	      is a waste though.
+	      is a waste though. This is caused by a webp handling bug in Pillow.
 	      So, don't use it for a large number of images.
 	      If you can fix it, contact the __author__.
 	"""
@@ -728,45 +746,58 @@ class DwebpPILMan:
 		traceback.print_exception(*exc_info, file=logstr)
 
 	def decodewebp(self, basepath, displayname):
-		im = Image.open(basepath + ".webp")
-		im.save(basepath + '.jpg', quality=90)
-		im.close()
-		del im
-		tryremove(basepath + ".webp")
-		return True
+		try:
+			im = Image.open(basepath + ".webp")
+			im.save(basepath + '.jpg', quality=90)
+			im.close()
+			del im
+			tryremove(basepath + ".webp")
+			return True
+		except Exception as ex:
+			if 'image' in repr(ex):
+				logging.getLogger().debug('%s %s' % (basepath, repr(ex)))
+				traceback.print_exception(*sys.exc_info(), file=logstr)
+				return False
+			else:
+				raise ex
 
 class DwebpSingleThreadPILMan:
 	"""
 	Use PIL.Image instead of dwebp to decode webps, using the main thread.
+	
+	Note: This also suffers from the memory leak caused by a webp handling
+	      bug in Pillow.
 	"""
 	def __init__(self, process):
 		self.supportwebp = True
 		self.fail = False
 
 	def add(self, basepath, displayname):
-		try:
-			self.decodewebp(self, basepath, displayname)
-		except Exception as ex:
+		result = self.decodewebp(basepath, displayname)
+		if not result:
 			self.fail = True
-			logging.getLogger().exception(str(request))
-		self.checklog(self, request, result)
+			logging.error("解码错误: %s", displayname)
+		else:
+			logging.info("完成转换 %s", displayname)
 
 	def wait(self):
 		pass
 
-	def checklog(self, request, result):
-		if result:
-			logging.info("完成转换 %s", request.args[1])
-		else:
-			logging.error("解码错误: %s", request.args[1])
-
 	def decodewebp(self, basepath, displayname):
-		im = Image.open(basepath + ".webp")
-		im.save(basepath + '.jpg', quality=90)
-		im.close()
-		del im
-		tryremove(basepath + ".webp")
-		return True
+		try:
+			im = Image.open(basepath + ".webp")
+			im.save(basepath + '.jpg', quality=90)
+			im.close()
+			del im
+			tryremove(basepath + ".webp")
+			return True
+		except Exception as ex:
+			if 'image' in repr(ex):
+				logging.getLogger().debug('%s %s' % (basepath, repr(ex)))
+				traceback.print_exception(*sys.exc_info(), file=logstr)
+				return False
+			else:
+				raise ex
 
 def logexit(err=True):
 	logging.shutdown()
@@ -797,7 +828,7 @@ def main():
 			'root':{'handlers':('console', 'strlogger'), 'level':'DEBUG'}}
 	logging.config.dictConfig(LOG_CONFIG)
 	try:
-		cpus = cpu_count() if cpu_count() else 2
+		cpus = min(cpu_count()//2 if cpu_count() else 1, 1)
 	except NotImplementedError:
 		cpus = 1
 
@@ -811,9 +842,13 @@ def main():
 	# parser.add_argument("--dwebp", nargs='?', help="Perfer dwebp for decoding, and/or locate your own dwebp WebP decoder.", default=None, const=True)
 	parser.add_argument("--dwebp", help="Locate your own dwebp WebP decoder.", default=None)
 	parser.add_argument("-d", "--db", help="Locate the 'buka_store.sql' file in iOS devices, which provides infomation for renaming.", default=None, metavar='buka_store.sql')
+	parser.add_argument("--debug", action='store_true', help=argparse.SUPPRESS)
 	parser.add_argument("input", help="The .buka file or the folder containing files downloaded by Buka, which is usually located in (Android) /sdcard/ibuka/down")
 	parser.add_argument("output", nargs='?', help="The output folder. (Default = ./output)", default=None)
 	args = parser.parse_args()
+	if args.debug:
+		for hdlr in logging.getLogger().handlers:
+			hdlr.setLevel(logging.DEBUG)
 	logging.debug(repr(args))
 
 	programdir = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -823,7 +858,7 @@ def main():
 	elif args.current_dir:
 		target = 'output'
 	else:
-		target = os.path.join(os.path.dirname(fn_buka),'output')
+		target = os.path.join(os.path.dirname(fn_buka), 'output')
 	target = os.path.abspath(target)
 	logging.info('输出至 ' + target)
 	if not os.path.exists(target):
@@ -837,17 +872,15 @@ def main():
 
 	logging.info("检查环境...")
 	logging.debug(repr(os.uname()))
-	# if args.dwebp == True:
-		# dwebpman = DwebpMan(None, args.process)
+	logging.debug('SUPPORTPIL = %r' % SUPPORTPIL)
 	if args.dwebp:
-		dwebpman = DwebpMan(args.dwebp, args.process)
+		dwebpman = DwebpMan(args.dwebp, args.process, SUPPORTPIL)
 	elif SUPPORTPIL and args.pil:
-		#dwebpman = DwebpPILMan(args.process)
-		# The solution now
-		dwebpman = DwebpSingleThreadPILMan(args.process)
+		dwebpman = DwebpPILMan(args.process)
+		# dwebpman = DwebpSingleThreadPILMan(args.process)
 	else:
-		dwebpman = DwebpMan(args.dwebp, args.process)
-	logging.debug("dwebpman = " + repr(dwebpman))
+		dwebpman = DwebpMan(args.dwebp, args.process, SUPPORTPIL)
+	logging.debug("dwebpman = %r" % dwebpman)
 
 	if os.path.isdir(target):
 		if detectfile(fn_buka) == "buka":
