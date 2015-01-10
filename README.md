@@ -6,6 +6,11 @@
 支持提取布卡漫画现有的多种格式（包括.buka，.jpg.view，.bup.view），保存为普通图片，并自动对文件夹重命名为漫画名和卷名。
 
 ## 版本历史
+### 2.4 版本
+* 加入 -n, --keepwebp 选项保留 WebP 文件
+* 日志输出漫画名
+* 修复重命名问题
+
 ### 2.3 版本
 * 优化错误处理、稳定性
 * 默认启用 Pillow 来转换 PNG 到 JPG
@@ -14,18 +19,18 @@
 * 优化 Windows 下用户体验。默认输出位置改为与输入文件夹**相同**目录，而不是“当前文件夹”。
 
 ### 2.1 版本
-* 修正几个重命名问题，dwebp解码优先。
+* 修正几个重命名问题，dwebp 解码优先。
 
 ### 2.0 版本
 * 将各类文件格式用对象表示，可访问属性及操作。
-* `buildfromdb` 解析iOS平台下数据库buka_store.sql，并实现其对chaporder.dat的转换。
-* 重写重命名部分，实现规范化的命名逻辑。
-* `BukaFile` 对.buka文件的解析与提取
-* `ComicInfo` 对chaporder.dat文件的解析
+  * `BukaFile` 对 .buka 文件的解析与提取
+  * `ComicInfo` 对 chaporder.dat 文件的解析
+* `buildfromdb` 解析iOS平台下数据库 buka_store.sql，并实现其对 chaporder.dat 的转换。
 * `DirMan` 实现自动重命名
 * `DwebpMan` 实现 dwebp 进程池
 * `DwebpPILMan` 实现 PIL 解码器线程池
-* 日志模块，简化bug报告
+* 重写重命名部分，实现规范化的命名逻辑。
+* 日志模块，简化错误报告
 * ……
 
 可通过 `import buka` 来进行研究和扩展功能。
@@ -40,7 +45,8 @@
 **Windows 发行版**：直接将待转换文件/文件夹拖入软件图标即可，**不要**直接双击运行。在命令行环境将以下所有 `[python3] buka.py` 替换为 `buka.exe`。
 
 ```
-用法: buka.py [-h] [-p NUM] [-c] [--dwebp [DWEBP]] [-d buka_store.sql]
+用法: buka.py [-h] [-p NUM] [-c] [-l] [-n] [--pil] [--dwebp DWEBP]
+               [-d buka_store.sql]
                input [output]
 
 转换布卡漫画下载的漫画文件。
@@ -58,6 +64,7 @@
   -c, --current-dir     默认输出文件夹改为 <当前目录>/output.
                         当指定 <output> 时忽略
   -l, --log             强制保存错误日志
+  -n, --keepwebp        保留 WebP 格式图片，不转换
   --pil                 PIL/Pillow 解码优先，速度更快，但可能导致
                         内存泄漏。(Windows 编译发行版本不可用)
   --dwebp DWEBP         指定 dwebp 解码器位置
@@ -68,7 +75,7 @@
 
 python3 buka.py -h
 ```
-usage: buka.py [-h] [-p NUM] [-c] [-l] [--pil] [--dwebp DWEBP]
+usage: buka.py [-h] [-p NUM] [-c] [-l] [-n] [--pil] [--dwebp DWEBP]
                [-d buka_store.sql]
                input [output]
 
@@ -88,6 +95,7 @@ optional arguments:
   -c, --current-dir     Change the default output dir to ./output. Ignored
                         when specifies <output>
   -l, --log             Force logging to file.
+  -n, --keepwebp        Keep WebP, don't convert them.
   --pil                 Perfer PIL/Pillow for decoding, faster, and may cause
                         memory leaks.
   --dwebp DWEBP         Locate your own dwebp WebP decoder.
@@ -108,3 +116,6 @@ optional arguments:
 
 PIL/Pillow 解码的 webp 解码器存在内存泄漏，不适合处理上百张图片；而 png 文件太大，所以先尝试使用 dwebp 外部解码器，再尝试使用 Pillow 来转换 png。
 
+## 授权
+
+MIT 协议

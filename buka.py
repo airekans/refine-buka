@@ -3,7 +3,7 @@
 # Python 3.x
 
 __author__ = "Gumble <abcdoyle888@gmail.com>"
-__version__ = "2.3"
+__version__ = "2.4"
 
 '''
 Extract images downloaded by Buka.
@@ -121,7 +121,7 @@ class BukaFile:
 		buff = f.read(128)
 		if buff[0:4] != b'buka':
 			raise BadBukaFile('not a buka file')
-		# I guess it's version
+		# I guess it's the version number.
 		# [4:8] is more likely a (minor) version
 		# [9:12] may be a major version or "file type"
 		self.version = struct.unpack('<II', buff[4:12])
@@ -197,6 +197,9 @@ class BukaFile:
 		return "<BukaFile comicid=%r comicname=%r chapid=%r>" % \
 			(self.comicid, self.comicname, self.chapid)
 
+	def __str__(self):
+		return "漫画: %s, %s" % (self.comicname, self.chapid)
+
 	def close(self):
 		self.fp.close()
 
@@ -243,16 +246,17 @@ class ComicInfo:
 			return str(cid)
 
 	def __getitem__(self, key):
-		if key in self.chaporder:
-			return self.chaporder[key]
-		else:
-			raise KeyError(key)
+		return self.chaporder[key]
 
 	def __contains__(self, item):
 		return item in self.chaporder
 
 	def __repr__(self):
 		return "<ComicInfo comicid=%r comicname=%r>" % (self.comicid, self.comicname)
+
+	def __str__(self):
+		return "漫画: %s" % (self.comicname)
+
 
 class DirMan:
 	'''
@@ -300,6 +304,7 @@ class DirMan:
 			if 'chaporder.dat' in files:
 				filename = os.path.join(root, 'chaporder.dat')
 				chaporder = ComicInfo(json.load(open(filename, 'r')))
+				logging.info(str(chaporder))
 				tempid = os.path.basename(root)
 				if tempid.isdigit():
 					tempid = int(tempid)
@@ -317,6 +322,7 @@ class DirMan:
 					# only a buka (and a chaporder) (and an index2)
 					logging.info('正在提取 ' + self.cutname(filename))
 					buka = BukaFile(filename)
+					logging.info(str(buka))
 					if buka.chapinfo:
 						chaporder = buka.chapinfo
 						self.updatecomicdict(chaporder)
@@ -332,6 +338,7 @@ class DirMan:
 				elif detectfile(filename) == 'buka':
 					logging.info('正在提取 ' + self.cutname(filename))
 					buka = BukaFile(filename)
+					logging.info(str(buka))
 					sp = splitpath(self.cutname(os.path.join(root, os.path.splitext(name)[0])))
 					if buka.chapinfo:
 						chaporder = buka.chapinfo
@@ -626,6 +633,9 @@ class DwebpMan:
 	Use a pool of dwebp's to decode webps.
 	'''
 	def __init__(self, dwebppath, process, pilconvert=False):
+		'''
+		If dwebppath is False, don't convert.
+		'''
 		self.pilconvert = pilconvert
 		programdir = os.path.dirname(os.path.abspath(sys.argv[0]))
 		self.fail = False
@@ -634,7 +644,12 @@ class DwebpMan:
 		else:
 			bit = '32'
 		logging.debug('os.machine() = %s', machine())
-		if dwebppath:
+		if dwebppath is False:
+			self.supportwebp = False
+			self.dwebp = None
+			self.pool = None
+			return
+		elif dwebppath:
 			self.dwebp = dwebppath
 		elif os.name == 'nt':
 			self.dwebp = os.path.join(programdir, 'dwebp_' + bit + '.exe')
@@ -838,8 +853,8 @@ def main():
 	# parser.add_argument("-s", "--same-dir", action='store_true', help="Change the default output dir to <input>/../output. Ignored when specifies <output>")
 	parser.add_argument("-c", "--current-dir", action='store_true', help="Change the default output dir to ./output. Ignored when specifies <output>")
 	parser.add_argument("-l", "--log", action='store_true', help="Force logging to file.")
+	parser.add_argument("-n", "--keepwebp", action='store_true', help="Keep WebP, don't convert them.")
 	parser.add_argument("--pil", action='store_true', help="Perfer PIL/Pillow for decoding, faster, and may cause memory leaks.")
-	# parser.add_argument("--dwebp", nargs='?', help="Perfer dwebp for decoding, and/or locate your own dwebp WebP decoder.", default=None, const=True)
 	parser.add_argument("--dwebp", help="Locate your own dwebp WebP decoder.", default=None)
 	parser.add_argument("-d", "--db", help="Locate the 'buka_store.sql' file in iOS devices, which provides infomation for renaming.", default=None, metavar='buka_store.sql')
 	parser.add_argument("--debug", action='store_true', help=argparse.SUPPRESS)
@@ -873,7 +888,9 @@ def main():
 	logging.info("检查环境...")
 	#logging.debug(repr(os.uname()))
 	logging.debug('SUPPORTPIL = %r' % SUPPORTPIL)
-	if args.dwebp:
+	if args.keepwebp:
+		dwebpman = DwebpMan(False, args.process, SUPPORTPIL)
+	elif args.dwebp:
 		dwebpman = DwebpMan(args.dwebp, args.process, SUPPORTPIL)
 	elif SUPPORTPIL and args.pil:
 		dwebpman = DwebpPILMan(args.process)
@@ -891,14 +908,15 @@ def main():
 				logexit()
 			logging.info('正在提取 ' + fn_buka)
 			buka = BukaFile(fn_buka)
+			logging.info(str(buka))
 			extractndecode(buka, target, dwebpman)
 			if dwebpman.supportwebp:
 				dwebpman.wait()
 			if buka.chapinfo:
-				movedir(target, os.path.join(os.path.dirname(target), buka.comicname + '-' + buka.chapinfo.renamef(buka.chapid)))
+				movedir(target, os.path.join(os.path.dirname(target), "%s-%s" % (buka.comicname, buka.chapinfo.renamef(buka.chapid))))
 			else:
 				# cannot get chapter name
-				movedir(target, os.path.join(os.path.dirname(target), buka.comicname + '-' + buka.chapid))
+				movedir(target, os.path.join(os.path.dirname(target), "%s-%s" % (buka.comicname, buka.chapid)))
 			buka.close()
 		elif os.path.isdir(fn_buka):
 			logging.info('正在复制...')
@@ -919,8 +937,8 @@ def main():
 		if dwebpman.fail:
 			logexit()
 		logging.info('完成。')
-		if not dwebpman.supportwebp:
-			logging.warning('警告: .bup 格式文件无法转换，保留为 webp 格式。')
+		if not args.keepwebp and not dwebpman.supportwebp:
+			logging.warning('警告: .bup 格式保留为 WebP 格式，没有转换为普通图片。')
 			logexit()
 		if args.log:
 			logexit()
@@ -931,7 +949,7 @@ def main():
 if __name__ == '__main__':
 	try:
 		main()
-	except SystemExit:
+	except (SystemExit, KeyboardInterrupt):
 		pass
 	except Exception:
 		logging.exception('错误: 主线程异常退出。')
