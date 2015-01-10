@@ -34,7 +34,7 @@ import sqlite3
 import logging, logging.config
 import traceback
 import threadpool
-from io import StringIO
+from io import StringIO, BytesIO
 from collections import OrderedDict, deque
 from subprocess import Popen, PIPE
 from platform import machine
@@ -229,6 +229,10 @@ class ComicInfo:
 				logging.debug("can't get comicid from url: %s", chaporder['logo'])
 				self.comicid = None
 
+	@staticmethod
+	def fromfile(filename):
+		return ComicInfo(json.load(open(filename)))
+
 	def renamef(self, cid):
 		if cid in self.chap:
 			if self.chap[cid]['title']:
@@ -355,14 +359,21 @@ class DirMan:
 					buka.close()
 					removefiles.append(filename)
 				elif detectfile(filename) == 'bup':
-					logging.info('加入队列 ' + self.cutname(filename))
-					with open(filename, 'rb') as f, open(os.path.splitext(filename)[0] + '.webp', 'wb') as w:
+					basename = os.path.splitext(filename)[0]
+					with open(filename, 'rb') as f, open(basename + '.webp', 'wb') as w:
 						f.seek(64)
 						shutil.copyfileobj(f, w)
-					#frombup.add(os.path.splitext(filename)[0] + '.webp')
-					self.dwebpman.add(os.path.splitext(filename)[0], self.cutname(filename))
+					# Don't use JPG files to cheat me!!!!!
+					trueformat = detectfile(basename + '.webp', True)
+					if trueformat == 'webp':
+						logging.info('加入队列 ' + self.cutname(filename))
+						#frombup.add(basename + '.webp')
+						self.dwebpman.add(basename, self.cutname(filename))
+						#decodewebp(basename)
+					else:
+						delayedtry(shutil.move, basename + '.webp', '%s.%s' % (basename, trueformat))
+						logging.info('完成转换 ' + self.cutname(filename))
 					removefiles.append(filename)
-					#decodewebp(os.path.splitext(filename)[0])
 				elif detectfile(filename) == 'tmp':
 					logging.info('已忽略 ' + self.cutname(filename))
 					removefiles.append(filename)
@@ -429,7 +440,19 @@ def movedir(src, dst):
 			movedir(os.path.join(src, item), os.path.join(dst, item))
 		os.rmdir(src)
 	else:
-		shutil.move(src, dst)
+		delayedtry(shutil.move, src, dst)
+
+def delayedtry(fn, *args, **kwargs):
+	for att in range(10):
+		try:
+			fn(*args, **kwargs)
+			break
+		except Exception as ex:
+			logging.debug("Try failed, trying... " + str(att+1))
+			if att == 9:
+				logging.error("文件操作失败超过重试次数。")
+				raise ex
+			time.sleep(0.2 * att)
 
 def tryremove(filename):
 	'''
@@ -566,39 +589,49 @@ def buildfromdb(dbname):
 			elif d[lst[0]]['lastup'].strip() in lst[2]:
 				d[lst[0]]['lastupcid'] = str(lst[1])
 	db.close()
-	return dict(map(lambda k: (k, ComicInfo(d[k], k)), d))
+	return dict((k, ComicInfo(v, k)) for k,v in d.items())
 
-def detectfile(filename):
-	'''Tests file format.'''
+def detectfile(filename, force=False):
+	'''
+	Tests file format.
+
+	Parts from standard library imghdr.
+	'''
 	if not os.path.exists(filename):
 		return None
 	if os.path.isdir(filename):
 		return 'dir'
-	if os.path.basename(filename) == 'index2.dat':
-		return 'index2'
-	elif os.path.basename(filename) == 'chaporder.dat':
-		return 'chaporder'
-	ext = os.path.splitext(filename)[1]
-	if ext == '.buka':
-		return 'buka'
-	elif ext == '.bup':
-		return 'bup'
-	elif ext == '.view':
-		ext2 = os.path.splitext(os.path.splitext(filename)[0])[1]
-		if ext2 == '.jpg':
-			return 'jpg'
-		elif ext2 == '.bup':
+	if not os.path.isfile(filename):
+		return False
+	if not force:
+		if os.path.basename(filename) == 'index2.dat':
+			return 'index2'
+		elif os.path.basename(filename) == 'chaporder.dat':
+			return 'chaporder'
+		ext = os.path.splitext(filename)[1]
+		if ext == '.buka':
+			return 'buka'
+		elif ext == '.bup':
 			return 'bup'
-		elif ext2 == '.png':
-			return 'png'
-	elif ext == '.tmp':
-		return 'tmp'
+		elif ext == '.view':
+			ext2 = os.path.splitext(os.path.splitext(filename)[0])[1]
+			if ext2 == '.jpg':
+				return 'jpg'
+			elif ext2 == '.bup':
+				return 'bup'
+			elif ext2 == '.png':
+				return 'png'
+		elif ext == '.tmp':
+			return 'tmp'
 	with open(filename, 'rb') as f:
 		h = f.read(32)
 	if h[6:10] in (b'JFIF', b'Exif'):
 		return 'jpg'
 	elif h.startswith(b'\211PNG\r\n\032\n'):
 		return 'png'
+	elif h[:6] in (b'GIF87a', b'GIF89a'):
+		return 'gif'
+	# IMHO Buka won't be that crazy to use other formats.
 	elif h[:4] == b"buka":
 		return 'buka'
 	elif h[:4] == b"AKUB" or h[12:16] == b"AKUB":
@@ -632,11 +665,12 @@ class DwebpMan:
 	'''
 	Use a pool of dwebp's to decode webps.
 	'''
-	def __init__(self, dwebppath, process, pilconvert=False):
+	def __init__(self, dwebppath, process, pilconvert=False, quality=92):
 		'''
 		If dwebppath is False, don't convert.
 		'''
 		self.pilconvert = pilconvert
+		self.quality = quality
 		programdir = os.path.dirname(os.path.abspath(sys.argv[0]))
 		self.fail = False
 		if '64' in machine():
@@ -688,14 +722,15 @@ class DwebpMan:
 	def add(self, basepath, displayname):
 		'''Ignores if not supported.'''
 		if self.pool:
-			self.pool.putRequest([basepath, displayname])
+			self.pool.putRequest(basepath, displayname)
 
 	def wait(self):
 		self.pool.wait()
 
 	def checklog(self, request, result):
-		if 'cannot' in result[1]:
+		if 'Saved' not in result[1]:
 			logging.error("dwebp 错误[%d]: %s", result[0], result[1])
+			self.fail = True
 		else:
 			logging.info("完成转换 %s", request.args[1])
 			logging.debug("dwebp OK[%d]: %s", result[0], result[1])
@@ -707,24 +742,27 @@ class DwebpMan:
 		traceback.print_exception(*exc_info, file=logstr)
 
 	def decodewebp(self, basepath, displayname):
-		proc = Popen([self.dwebp, basepath + ".webp", "-o", basepath + ".png"], stdout=PIPE, stderr=PIPE, cwd=os.getcwd())
-		stdout, stderr = proc.communicate()
-		#if stdout:
-			#stdout = stdout.decode(errors='ignore')
-			#logging.info("dwebp: " + stdout)
+		if self.pilconvert:
+			proc = Popen([self.dwebp, basepath + ".webp", "-bmp", "-o", "-"], stdout=PIPE, stderr=PIPE, cwd=os.getcwd())
+			stdout, stderr = proc.communicate()
+			if stdout:
+				self.convertpng(basepath, stdout)
+			else:
+				# This will handled using stderr info.
+				pass
+		else:
+			proc = Popen([self.dwebp, basepath + ".webp", "-o", basepath + ".png"], stdout=PIPE, stderr=PIPE, cwd=os.getcwd())
+			stdout, stderr = proc.communicate()
+		tryremove(basepath + ".webp")
 		if stderr:
 			stderr = stderr.decode(errors='ignore')
-		if self.pilconvert:
-			try:
-				im = Image.open(basepath + ".png")
-				im.save(basepath + '.jpg', quality=90)
-				im.close()
-				del im
-				tryremove(basepath + ".png")
-			except Exception as ex:
-				logging.exception('Convert to jpg failed.')
-		tryremove(basepath + ".webp")
 		return (proc.returncode, stderr)
+
+	def convertpng(self, basepath, imgdata):
+		im = Image.open(BytesIO(imgdata))
+		im.save(basepath + '.jpg', quality=self.quality)
+		im.close()
+		del im
 
 class DwebpPILMan:
 	"""
@@ -737,13 +775,14 @@ class DwebpPILMan:
 	      So, don't use it for a large number of images.
 	      If you can fix it, contact the __author__.
 	"""
-	def __init__(self, process):
+	def __init__(self, process, quality=92):
+		self.quality = quality
 		self.supportwebp = True
 		self.fail = False
 		self.pool = threadpool.NoOrderedRequestManager(process,self.decodewebp,self.checklog,self.handle_thread_exception)
 
 	def add(self, basepath, displayname):
-		self.pool.putRequest([basepath, displayname])
+		self.pool.putRequest(basepath, displayname)
 
 	def wait(self):
 		self.pool.wait()
@@ -763,7 +802,7 @@ class DwebpPILMan:
 	def decodewebp(self, basepath, displayname):
 		try:
 			im = Image.open(basepath + ".webp")
-			im.save(basepath + '.jpg', quality=90)
+			im.save(basepath + '.jpg', quality=self.quality)
 			im.close()
 			del im
 			tryremove(basepath + ".webp")
@@ -783,7 +822,8 @@ class DwebpSingleThreadPILMan:
 	Note: This also suffers from the memory leak caused by a webp handling
 	      bug in Pillow.
 	"""
-	def __init__(self, process):
+	def __init__(self, process, quality=92):
+		self.quality = quality
 		self.supportwebp = True
 		self.fail = False
 
@@ -801,7 +841,7 @@ class DwebpSingleThreadPILMan:
 	def decodewebp(self, basepath, displayname):
 		try:
 			im = Image.open(basepath + ".webp")
-			im.save(basepath + '.jpg', quality=90)
+			im.save(basepath + '.jpg', quality=self.quality)
 			im.close()
 			del im
 			tryremove(basepath + ".webp")
@@ -814,17 +854,17 @@ class DwebpSingleThreadPILMan:
 			else:
 				raise ex
 
-def logexit(err=True):
+def logexit(err=True, wait=True):
 	logging.shutdown()
+	try:
+		with open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])),'bukaex.log'), 'a') as f:
+			f.write(logstr.getvalue())
+	except Exception:
+		with open('bukaex.log', 'a') as f:
+			f.write(logstr.getvalue())
 	if err:
-		try:
-			with open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])),'bukaex.log'), 'a') as f:
-				f.write(logstr.getvalue())
-		except Exception:
-			with open('bukaex.log', 'a') as f:
-				f.write(logstr.getvalue())
 		print('如果不是使用方法错误，请发送错误报告 bukaex.log 给作者 ' + __author__)
-	if os.name == 'nt':
+	if wait and os.name == 'nt':
 		time.sleep(NT_SLEEP_SEC)
 	sys.exit(int(err))
 
@@ -856,6 +896,7 @@ def main():
 	parser.add_argument("-n", "--keepwebp", action='store_true', help="Keep WebP, don't convert them.")
 	parser.add_argument("--pil", action='store_true', help="Perfer PIL/Pillow for decoding, faster, and may cause memory leaks.")
 	parser.add_argument("--dwebp", help="Locate your own dwebp WebP decoder.", default=None)
+	parser.add_argument("-q", "--quality", help="JPG quality. (Default = 92)", default=92, type=int, metavar='NUM')
 	parser.add_argument("-d", "--db", help="Locate the 'buka_store.sql' file in iOS devices, which provides infomation for renaming.", default=None, metavar='buka_store.sql')
 	parser.add_argument("--debug", action='store_true', help=argparse.SUPPRESS)
 	parser.add_argument("input", help="The .buka file or the folder containing files downloaded by Buka, which is usually located in (Android) /sdcard/ibuka/down")
@@ -889,14 +930,14 @@ def main():
 	#logging.debug(repr(os.uname()))
 	logging.debug('SUPPORTPIL = %r' % SUPPORTPIL)
 	if args.keepwebp:
-		dwebpman = DwebpMan(False, args.process, SUPPORTPIL)
+		dwebpman = DwebpMan(False, args.process, SUPPORTPIL, args.quality)
 	elif args.dwebp:
-		dwebpman = DwebpMan(args.dwebp, args.process, SUPPORTPIL)
+		dwebpman = DwebpMan(args.dwebp, args.process, SUPPORTPIL, args.quality)
 	elif SUPPORTPIL and args.pil:
-		dwebpman = DwebpPILMan(args.process)
+		dwebpman = DwebpPILMan(args.process, args.quality)
 		# dwebpman = DwebpSingleThreadPILMan(args.process)
 	else:
-		dwebpman = DwebpMan(args.dwebp, args.process, SUPPORTPIL)
+		dwebpman = DwebpMan(args.dwebp, args.process, SUPPORTPIL, args.quality)
 	logging.debug("dwebpman = %r" % dwebpman)
 
 	if os.path.isdir(target):
@@ -941,7 +982,7 @@ def main():
 			logging.warning('警告: .bup 格式保留为 WebP 格式，没有转换为普通图片。')
 			logexit()
 		if args.log:
-			logexit()
+			logexit(False, False)
 	else:
 		logging.critical("错误: 输出文件夹路径为一个文件。")
 		logexit()
@@ -949,8 +990,10 @@ def main():
 if __name__ == '__main__':
 	try:
 		main()
-	except (SystemExit, KeyboardInterrupt):
+	except SystemExit:
 		pass
+	except KeyboardInterrupt:
+		logexit(False, False)
 	except Exception:
 		logging.exception('错误: 主线程异常退出。')
 		logexit()

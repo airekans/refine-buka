@@ -338,12 +338,8 @@ class OrderedRequestManager:
         self.callback = callback
         self.exc_callback = exc_callback
     
-    def putRequest(self, args):
-        if isinstance(args, tuple):
-            request = WorkRequest(self.callable_, args[0], args[1], callback=self._handle_result,
-                    exc_callback=self.exc_callback)
-        else:
-            request = WorkRequest(self.callable_, list(args), None, callback=self._handle_result,
+    def putRequest(self, *args, **kwargs):
+        request = WorkRequest(self.callable_, args, kwargs, callback=self._handle_result,
                     exc_callback=self.exc_callback)
         self.requests.append(request)
         self.pool.putRequest(request)
@@ -386,12 +382,8 @@ class NoOrderedRequestManager:
         self.callback = callback
         self.exc_callback = exc_callback
     
-    def putRequest(self, args):
-        if isinstance(args, tuple):
-            request = WorkRequest(self.callable_, args[0], args[1], callback=self.callback,
-                    exc_callback=self.exc_callback)
-        else:
-            request = WorkRequest(self.callable_, list(args), None, callback=self.callback,
+    def putRequest(self, *args, **kwargs):
+        request = WorkRequest(self.callable_, args, kwargs, callback=self.callback,
                     exc_callback=self.exc_callback)
         self.pool.putRequest(request)
         try:
