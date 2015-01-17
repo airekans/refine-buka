@@ -3,7 +3,7 @@
 # Python 3.x
 
 __author__ = "Gumble <abcdoyle888@gmail.com>"
-__version__ = "2.4"
+__version__ = "2.5"
 
 '''
 Extract images downloaded by Buka.
@@ -102,6 +102,12 @@ class tTree():
 
 	def keys(self):
 		return self.d.keys()
+
+	def items(self):
+		return self.d.items()
+
+	def values(self):
+		return self.d.values()
 
 	def get(self, key, default=None):
 		key = tuple(key)
@@ -748,6 +754,79 @@ def detectfile(filename, force=False):
 	else:
 		return False
 
+def fileinfo(path):
+	ftype = detectfile(path)
+	if ftype is None:
+		return path + ':\n Not exist'
+	elif ftype is False:
+		return path + ':\n Unknown'
+	elif ftype == 'index2':
+		return path + ':\n Buka index2.dat image index file'
+	elif ftype == 'chaporder':
+		rv = [path + ':\n Buka chaporder.dat comic description file']
+		ci = ComicInfo.fromfile(path)
+		rv.append('Comic ID: %s' % ci.comicid)
+		rv.append('Comic Name: %s' % ci.comicname)
+		rv.append('Author: %s' % ci.chaporder.get('author'))
+		rv.append('Introduction: %s' % ci.chaporder.get('intro'))
+		return '\n'.join(rv)
+	elif ftype == 'bup':
+		return path + ':\n Buka bup image wrapper file'
+	elif ftype == 'jpg':
+		return path + ':\n JPEG image file'
+	elif ftype == 'png':
+		return path + ':\n PNG image file'
+	elif ftype == 'gif':
+		return path + ':\n GIF image file'
+	elif ftype == 'webp':
+		return path + ':\n WebP image file'
+	elif ftype == 'tmp':
+		return path + ':\n Buka download temporary file'
+	elif ftype == 'sqlite3':
+		return path + ':\n SQLite 3.x database'
+	elif ftype == 'buka':
+		rv = [path + ':\n Buka archive file']
+		bf = BukaFile(path)
+		rv.append('Version: %s, %s' % bf.version)
+		rv.append('Comic ID: %s' % bf.comicid)
+		rv.append('Comic Name: %s' % bf.comicname)
+		rv.append('Chapter ID: %s' % bf.chapid)
+		if bf.chapinfo:
+			rv.append('Chapter Name: %s' % bf.chapinfo.renamef(bf.chapid))
+			rv.append('Author: %s' % bf.chapinfo.chaporder.get('author'))
+			rv.append('Introduction: %s' % bf.chapinfo.chaporder.get('intro'))
+		return '\n'.join(rv)
+	elif ftype == 'dir':
+		rv = [path + ':\n Directory']
+		dm = DirMan(path).detect()
+		dml = sorted(dm.items())
+		def describe(item):
+			if item is None:
+				return 'Unknown'
+			elif item[0] == 'comic':
+				return item[1]
+			else:
+				return item[2] #'%s %s' % item[1:]
+		for key, item in dml:
+			if len(key) > 1:
+				if item is not None and item[0] == 'chap':
+					if describe(dm[key[:-1]]) != item[1]:
+						rv.append('%s%s/: %s - %s' % (' ' * sum(map(len, key[:-1])), key[-1], item[1], item[2]))
+						continue
+			rv.append('%s%s/: %s' % (' ' * sum(map(len, key[:-1])), key[-1], describe(item)))
+		return '\n'.join(rv)
+	else:
+		return path + ':\n Unknown'
+
+def folderinfo(path):
+	for root, dirs, files in os.walk(startpath):
+		level = root.replace(startpath, '').count(os.sep)
+		indent = ' ' * 4 * (level)
+		print('{}{}/ : {}'.format(indent, os.path.basename(root)))
+		subindent = ' ' * 4 * (level + 1)
+		for f in files:
+			print('{}{} : {}'.format(subindent, f))
+
 def copytree(src, dst, symlinks=False, ignore=None):
 	if not os.path.exists(dst):
 		os.makedirs(dst)
@@ -997,6 +1076,7 @@ def main():
 
 	logging.info('%s version %s' % (os.path.basename(sys.argv[0]), __version__))
 	parser = ArgumentParserWait(description="Converts comics downloaded by Buka.")
+	parser.add_argument("-i", "--info", action='store_true', help="Only show file/folder information.")
 	parser.add_argument("-p", "--process", help="The max number of running dwebp's. (Default = CPU count)", default=cpus, type=int, metavar='NUM')
 	# parser.add_argument("-s", "--same-dir", action='store_true', help="Change the default output dir to <input>/../output. Ignored when specifies <output>")
 	parser.add_argument("-c", "--current-dir", action='store_true', help="Change the default output dir to ./output. Ignored when specifies <output>")
@@ -1017,6 +1097,9 @@ def main():
 
 	programdir = os.path.dirname(os.path.abspath(sys.argv[0]))
 	fn_buka = args.input.rstrip('\\/')
+	if args.info:
+		print(fileinfo(fn_buka))
+		return
 	if args.output:
 		target = args.output
 	elif args.current_dir:
