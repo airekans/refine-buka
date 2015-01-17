@@ -331,23 +331,23 @@ class OrderedRequestManager:
     """Make the results arrive in FIFO order."""
     def __init__(self, num_workers, callable_, callback=None,
         exc_callback=_handle_thread_exception, q_size=0, resq_size=0, poll_timeout=5):
-        self.pool = ThreadPool(num_workers)
+        self.pool = ThreadPool(num_workers, q_size=q_size, resq_size=resq_size, poll_timeout=poll_timeout)
         self.requests = deque()
         self.results = {}
         self.callable_ = callable_
         self.callback = callback
         self.exc_callback = exc_callback
-    
+
     def putRequest(self, *args, **kwargs):
         request = WorkRequest(self.callable_, args, kwargs, callback=self._handle_result,
                     exc_callback=self.exc_callback)
         self.requests.append(request)
-        self.pool.putRequest(request)
+        self.pool.putRequest(request, block=kwargs.get('block_', True), timeout=kwargs.get('timeout_', None))
         try:
             self.pool.poll()
         except NoResultsPending:
             pass
-    
+
     def _handle_result(self, request, result):
         self.results[request.requestID] = result
         #pprint(self.requests[0].requestID)
@@ -355,12 +355,12 @@ class OrderedRequestManager:
             resultarrived = self.requests.popleft()
             if self.callback:
                 self.callback(resultarrived, self.results.pop(resultarrived.requestID))
-    
+
     def map(self, iterable):
         for item in iterable:
             self.putRequest(item)
         self.pool.poll()
-    
+
     def wait(self):
         while 1:
             try:
@@ -377,24 +377,24 @@ class NoOrderedRequestManager:
     """Make the results arrive not in order."""
     def __init__(self, num_workers, callable_, callback=None,
         exc_callback=_handle_thread_exception, q_size=0, resq_size=0, poll_timeout=5):
-        self.pool = ThreadPool(num_workers)
+        self.pool = ThreadPool(num_workers, q_size=q_size, resq_size=resq_size, poll_timeout=poll_timeout)
         self.callable_ = callable_
         self.callback = callback
         self.exc_callback = exc_callback
-    
+
     def putRequest(self, *args, **kwargs):
         request = WorkRequest(self.callable_, args, kwargs, callback=self.callback,
                     exc_callback=self.exc_callback)
-        self.pool.putRequest(request)
+        self.pool.putRequest(request, block=kwargs.get('block_', True), timeout=kwargs.get('timeout_', None))
         try:
             self.pool.poll()
         except NoResultsPending:
             pass
-    
+
     def map(self, iterable):
         for item in iterable:
             self.putRequest(item)
-    
+
     def wait(self):
         while 1:
             try:

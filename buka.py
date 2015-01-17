@@ -25,6 +25,7 @@ if sys.version_info[0] < 3:
 	sys.exit(1)
 
 import os
+import platform
 import shutil
 import argparse
 import time
@@ -37,7 +38,6 @@ import threadpool
 from io import StringIO, BytesIO
 from collections import OrderedDict, deque
 from subprocess import Popen, PIPE
-from platform import machine
 from multiprocessing import cpu_count
 
 try:
@@ -271,14 +271,15 @@ class DirMan:
 	* self.comicdict - maintains the dictionary of known comic entries.
 	* self.dwebpman - puts decode requests
 	'''
-	def __init__(self, dirpath, dwebpman, comicdict={}):
-		self.dirpath = dirpath
+	def __init__(self, dirpath, dwebpman=None, origpath=None, comicdict={}):
+		self.dirpath = dirpath.rstrip('\\/')
+		self.origpath = (origpath or dirpath).rstrip('\\/')
 		self.nodes = tTree()
 		self.dwebpman = dwebpman
 		self.comicdict = comicdict
 
 	def __repr__(self):
-		return "<DirMan dirpath=%r>" % self.dirpath
+		return "<DirMan dirpath=%r origpath=%r>" % (self.dirpath, self.origpath)
 
 	def cutname(self, filename):
 		'''
@@ -287,12 +288,102 @@ class DirMan:
 		'''
 		return os.path.relpath(filename, os.path.dirname(self.dirpath))
 
+	def basename(self, filename):
+		'''
+		Cuts the filename to be relative to the base directory name
+		to avoid renaming outer directories.
+		'''
+		if filename == self.dirpath:
+			return os.path.basename(self.origpath)
+		else:
+			return os.path.basename(filename)
+
 	def updatecomicdict(self, comicinfo):
 		if comicinfo.comicid in self.comicdict:
 			self.comicdict[comicinfo.comicid].chaporder.update(comicinfo.chaporder)
 			self.comicdict[comicinfo.comicid].chap.update(comicinfo.chap)
 		else:
 			self.comicdict[comicinfo.comicid] = comicinfo
+
+	def detect(self):
+		'''
+		Only detects directory contents.
+		'''
+		for root, subFolders, files in os.walk(self.dirpath):
+			dtype = None
+			if 'chaporder.dat' in files:
+				filename = os.path.join(root, 'chaporder.dat')
+				chaporder = ComicInfo(json.load(open(filename, 'r')))
+				tempid = self.basename(root)
+				if tempid.isdigit():
+					tempid = int(tempid)
+					if tempid == chaporder.comicid:
+						dtype = dtype or ('comic', chaporder.comicname)
+					elif tempid in chaporder.chap:
+						dtype = dtype or ('chap', chaporder.comicname, chaporder.renamef(tempid))
+					elif chaporder.comicid is None:
+						dtype = dtype or ('comic', chaporder.comicname)
+						chaporder.comicid = tempid
+				self.updatecomicdict(chaporder)
+			for name in files:
+				filename = os.path.join(root, name)
+				if detectfile(filename) == 'buka' and not subFolders and (name == 'pack.dat' or len(files)<4):
+					# only a buka (and a chaporder) (and an index2)
+					buka = BukaFile(filename)
+					if buka.chapinfo:
+						chaporder = buka.chapinfo
+						self.updatecomicdict(chaporder)
+						tempid = self.basename(root)
+						if tempid.isdigit():
+							tempid = int(tempid)
+							dtype = dtype or ('chap', buka.comicname, chaporder.renamef(tempid))
+					elif buka.comicid in self.comicdict:
+						dtype = dtype or ('chap', buka.comicname, self.comicdict[buka.comicid].renamef(buka.chapid))
+				elif detectfile(filename) == 'buka':
+					buka = BukaFile(filename)
+					sp = splitpath(self.cutname(os.path.join(root, os.path.splitext(name)[0])))
+					if buka.chapinfo:
+						chaporder = buka.chapinfo
+						self.updatecomicdict(chaporder)
+						self.nodes[sp] = ('chap', buka.comicname, chaporder.renamef(buka.chapid))
+					elif buka.comicid in self.comicdict:
+						self.nodes[sp] = ('chap', buka.comicname, self.comicdict[buka.comicid].renamef(buka.chapid))
+					tempid = self.basename(root)
+					if tempid.isdigit():
+						tempid = int(tempid)
+						if tempid == buka.comicid:
+							dtype = dtype or ('comic', buka.comicname)
+				elif detectfile(filename) == 'bup':
+					pass
+				elif detectfile(filename) == 'tmp':
+					pass
+				elif name == 'buka_store.sql':
+					try:
+						cdict = buildfromdb(filename)
+						for key in cdict:
+							self.updatecomicdict(cdict[key])
+					except Exception:
+						pass
+			if root == self.dirpath:
+				rootdir = self.origpath
+			else:
+				rootdir = root
+			sp = splitpath(self.cutname(root))
+			if not dtype:
+				tempid = self.basename(rootdir)
+				if tempid.isdigit():
+					tempid = int(tempid)
+					if tempid in self.comicdict:
+						dtype = ('comic', self.comicdict[tempid].comicname)
+					else:
+						tempid2 = self.basename(os.path.dirname(root))
+						if tempid2.isdigit():
+							tempid2 = int(tempid2)
+							if tempid2 in self.comicdict:
+								if tempid in self.comicdict[tempid2].chap:
+									dtype = ('chap', self.comicdict[tempid2].comicname, self.comicdict[tempid2].renamef(tempid))
+			self.nodes[sp] = dtype
+		return self.nodes
 
 	def detectndecode(self):
 		'''
@@ -301,6 +392,8 @@ class DirMan:
 		'''
 		# ifndef = lambda x,y: x if x else y
 		#        ==> x or y
+		if self.dwebpman is None:
+			raise NotImplementedError('dwebpman must be specified first.')
 		removefiles = []
 		for root, subFolders, files in os.walk(self.dirpath):
 			dtype = None
@@ -309,7 +402,7 @@ class DirMan:
 				filename = os.path.join(root, 'chaporder.dat')
 				chaporder = ComicInfo(json.load(open(filename, 'r')))
 				logging.info(str(chaporder))
-				tempid = os.path.basename(root)
+				tempid = self.basename(root)
 				if tempid.isdigit():
 					tempid = int(tempid)
 					if tempid == chaporder.comicid:
@@ -330,7 +423,7 @@ class DirMan:
 					if buka.chapinfo:
 						chaporder = buka.chapinfo
 						self.updatecomicdict(chaporder)
-						tempid = os.path.basename(root)
+						tempid = self.basename(root)
 						if tempid.isdigit():
 							tempid = int(tempid)
 							dtype = dtype or ('chap', buka.comicname, chaporder.renamef(tempid))
@@ -351,7 +444,7 @@ class DirMan:
 					elif buka.comicid in self.comicdict:
 						self.nodes[sp] = ('chap', buka.comicname, self.comicdict[buka.comicid].renamef(buka.chapid))
 					extractndecode(buka, os.path.join(root, os.path.splitext(name)[0]), self.dwebpman)
-					tempid = os.path.basename(root)
+					tempid = self.basename(root)
 					if tempid.isdigit():
 						tempid = int(tempid)
 						if tempid == buka.comicid:
@@ -360,18 +453,20 @@ class DirMan:
 					removefiles.append(filename)
 				elif detectfile(filename) == 'bup':
 					basename = os.path.splitext(filename)[0]
-					with open(filename, 'rb') as f, open(basename + '.webp', 'wb') as w:
+					with open(filename, 'rb') as f:
 						f.seek(64)
-						shutil.copyfileobj(f, w)
+						bupfile = f.read()
 					# Don't use JPG files to cheat me!!!!!
-					trueformat = detectfile(basename + '.webp', True)
+					#trueformat = detectfile(basename + '.webp', True)
+					trueformat = detectfile(bupfile, True)
 					if trueformat == 'webp':
 						logging.info('加入队列 ' + self.cutname(filename))
 						#frombup.add(basename + '.webp')
-						self.dwebpman.add(basename, self.cutname(filename))
+						self.dwebpman.add(basename, bupfile, self.cutname(filename))
 						#decodewebp(basename)
 					else:
-						delayedtry(shutil.move, basename + '.webp', '%s.%s' % (basename, trueformat))
+						with open('%s.%s' % (basename, trueformat), 'wb') as w:
+							w.write(bupfile)
 						logging.info('完成转换 ' + self.cutname(filename))
 					removefiles.append(filename)
 				elif detectfile(filename) == 'tmp':
@@ -395,15 +490,19 @@ class DirMan:
 					#dtype = 'unk'
 			#for name in subFolders:
 				#pass
+			if root == self.dirpath:
+				rootdir = self.origpath
+			else:
+				rootdir = root
 			sp = splitpath(self.cutname(root))
 			if not dtype:
-				tempid = os.path.basename(root)
+				tempid = self.basename(rootdir)
 				if tempid.isdigit():
 					tempid = int(tempid)
 					if tempid in self.comicdict:
 						dtype = ('comic', self.comicdict[tempid].comicname)
 					else:
-						tempid2 = os.path.basename(os.path.dirname(root))
+						tempid2 = self.basename(os.path.dirname(root))
 						if tempid2.isdigit():
 							tempid2 = int(tempid2)
 							if tempid2 in self.comicdict:
@@ -481,7 +580,7 @@ def splitpath(path):
 	# p = ['/', 'a', 'b', 'c', 'd']
 	'''
 	folders = []
-	path = path.rstrip(r'\\').rstrip(r'/')
+	path = path.rstrip('\\/')
 	while 1:
 		path,folder = os.path.split(path)
 		if folder != "":
@@ -499,10 +598,9 @@ def extractndecode(bukafile, path, dwebpman):
 		os.makedirs(path)
 	for key in bukafile.files:
 		if os.path.splitext(key)[1] == '.bup':
-			with open(os.path.join(path, os.path.splitext(key)[0] + '.webp'), 'wb') as f:
-				f.write(bukafile.getfile(key,64))
-			# decodewebp(os.path.join(path, os.path.splitext(key)[0]))
-			dwebpman.add(os.path.join(path, os.path.splitext(key)[0]), os.path.join(os.path.basename(path), key))
+			#with open(os.path.join(path, os.path.splitext(key)[0] + '.webp'), 'wb') as f:
+				#f.write(bukafile.getfile(key, 64))
+			dwebpman.add(os.path.join(path, os.path.splitext(key)[0]), bukafile.getfile(key, 64), os.path.join(os.path.basename(path), key))
 		elif key == 'logo':
 			with open(os.path.join(path, key + '.jpg'), 'wb') as f:
 				f.write(bukafile[key])
@@ -597,51 +695,56 @@ def detectfile(filename, force=False):
 
 	Parts from standard library imghdr.
 	'''
-	if not os.path.exists(filename):
-		return None
-	if os.path.isdir(filename):
-		return 'dir'
-	if not os.path.isfile(filename):
-		return False
-	if not force:
-		if os.path.basename(filename) == 'index2.dat':
-			return 'index2'
-		elif os.path.basename(filename) == 'chaporder.dat':
-			return 'chaporder'
-		ext = os.path.splitext(filename)[1]
-		if ext == '.buka':
-			return 'buka'
-		elif ext == '.bup':
-			return 'bup'
-		elif ext == '.view':
-			ext2 = os.path.splitext(os.path.splitext(filename)[0])[1]
-			if ext2 == '.jpg':
-				return 'jpg'
-			elif ext2 == '.bup':
+	if isinstance(filename, str):
+		if not os.path.exists(filename):
+			return None
+		if os.path.isdir(filename):
+			return 'dir'
+		if not os.path.isfile(filename):
+			return False
+		if not force:
+			if os.path.basename(filename) == 'index2.dat':
+				return 'index2'
+			elif os.path.basename(filename) == 'chaporder.dat':
+				return 'chaporder'
+			ext = os.path.splitext(filename)[1]
+			if ext == '.buka':
+				return 'buka'
+			elif ext == '.bup':
 				return 'bup'
-			elif ext2 == '.png':
-				return 'png'
-		elif ext == '.tmp':
-			return 'tmp'
-	with open(filename, 'rb') as f:
-		h = f.read(32)
+			elif ext == '.view':
+				ext2 = os.path.splitext(os.path.splitext(filename)[0])[1]
+				if ext2 == '.jpg':
+					return 'jpg'
+				elif ext2 == '.bup':
+					return 'bup'
+				elif ext2 == '.png':
+					return 'png'
+			elif ext == '.tmp':
+				return 'tmp'
+		with open(filename, 'rb') as f:
+			h = f.read(32)
+	elif isinstance(filename, bytes):
+		h = filename[:32]
+	else:
+		h = filename.peek(32)
 	if h[6:10] in (b'JFIF', b'Exif'):
 		return 'jpg'
-	elif h.startswith(b'\211PNG\r\n\032\n'):
-		return 'png'
-	elif h[:6] in (b'GIF87a', b'GIF89a'):
-		return 'gif'
-	# IMHO Buka won't be that crazy to use other formats.
+	elif h[:4] == b"bup\x00":
+		return 'bup'
+	elif h[:4] == b"RIFF" and h[8:16] == b"WEBPVP8 ":
+		return 'webp'
 	elif h[:4] == b"buka":
 		return 'buka'
 	elif h[:4] == b"AKUB" or h[12:16] == b"AKUB":
 		return 'index2'
-	elif h[:4] == b"bup\x00":
-		return 'bup'
 	elif h.startswith(b'SQLite format 3'):
 		return 'sqlite3'
-	elif h[:4] == b"RIFF" and h[8:16] == b"WEBPVP8 ":
-		return 'webp'
+	# IMHO Buka won't be that crazy to use other formats.
+	elif h.startswith(b'\211PNG\r\n\032\n'):
+		return 'png'
+	elif h[:6] in (b'GIF87a', b'GIF89a'):
+		return 'gif'
 	else:
 		return False
 
@@ -665,7 +768,7 @@ class DwebpMan:
 	'''
 	Use a pool of dwebp's to decode webps.
 	'''
-	def __init__(self, dwebppath, process, pilconvert=False, quality=92):
+	def __init__(self, dwebppath=None, process=1, pilconvert=False, quality=92):
 		'''
 		If dwebppath is False, don't convert.
 		'''
@@ -673,11 +776,11 @@ class DwebpMan:
 		self.quality = quality
 		programdir = os.path.dirname(os.path.abspath(sys.argv[0]))
 		self.fail = False
-		if '64' in machine():
+		if '64' in platform.machine():
 			bit = '64'
 		else:
 			bit = '32'
-		logging.debug('os.machine() = %s', machine())
+		logging.debug('platform.machine() = %s', platform.machine())
 		if dwebppath is False:
 			self.supportwebp = False
 			self.dwebp = None
@@ -685,19 +788,21 @@ class DwebpMan:
 			return
 		elif dwebppath:
 			self.dwebp = dwebppath
-		elif os.name == 'nt':
+		elif os.name == 'nt' or sys.platform in ('win32', 'cygwin'):
 			self.dwebp = os.path.join(programdir, 'dwebp_' + bit + '.exe')
+		elif sys.platform == 'darwin':
+			self.dwebp = os.path.join(programdir, 'dwebp_mac')
 		else:
 			self.dwebp = os.path.join(programdir, 'dwebp_' + bit)
 
-		nul = open(os.devnull, 'w')
+		DEVNUL = open(os.devnull, 'w')
 		try:
-			p = Popen(self.dwebp, stdout=nul, stderr=nul).wait()
+			p = Popen(self.dwebp, stdout=DEVNUL, stderr=DEVNUL).wait()
 			self.supportwebp = True
 		except Exception as ex:
 			if os.name == 'posix':
 				try:
-					p = Popen('dwebp', stdout=nul, stderr=nul).wait()
+					p = Popen('dwebp', stdout=DEVNUL, stderr=DEVNUL).wait()
 					self.supportwebp = True
 					self.dwebp = 'dwebp'
 					logging.info("used dwebp installed in the system.")
@@ -709,20 +814,23 @@ class DwebpMan:
 				logging.error("dwebp 不可用，仅支持普通文件格式。")
 				logging.debug("dwebp test: " + repr(ex))
 				self.supportwebp = False
-		nul.close()
+		DEVNUL.close()
 		logging.debug("dwebp = " + self.dwebp)
 		if self.supportwebp:
-			self.pool = threadpool.NoOrderedRequestManager(process,self.decodewebp,self.checklog,self.handle_thread_exception)
+			self.pool = threadpool.NoOrderedRequestManager(process, self.decodewebp, self.checklog, self.handle_thread_exception, q_size=10)
 		else:
 			self.pool = None
 
 	def __repr__(self):
 		return "<DwebpMan supportwebp=%r dwebp=%r>" % (self.supportwebp, self.dwebp)
 
-	def add(self, basepath, displayname):
+	def add(self, basepath, webpfile, displayname):
 		'''Ignores if not supported.'''
 		if self.pool:
-			self.pool.putRequest(basepath, displayname)
+			self.pool.putRequest(basepath, webpfile, displayname)
+		else:
+			with open(basepath + '.webp', 'wb') as f:
+				f.write(webpfile)
 
 	def wait(self):
 		self.pool.wait()
@@ -732,7 +840,7 @@ class DwebpMan:
 			logging.error("dwebp 错误[%d]: %s", result[0], result[1])
 			self.fail = True
 		else:
-			logging.info("完成转换 %s", request.args[1])
+			logging.info("完成转换 %s", request.args[2])
 			logging.debug("dwebp OK[%d]: %s", result[0], result[1])
 
 	def handle_thread_exception(self, request, exc_info):
@@ -741,19 +849,19 @@ class DwebpMan:
 		logging.getLogger().error(str(request))
 		traceback.print_exception(*exc_info, file=logstr)
 
-	def decodewebp(self, basepath, displayname):
+	def decodewebp(self, basepath, webpfile, displayname):
 		if self.pilconvert:
-			proc = Popen([self.dwebp, basepath + ".webp", "-bmp", "-o", "-"], stdout=PIPE, stderr=PIPE, cwd=os.getcwd())
-			stdout, stderr = proc.communicate()
+			proc = Popen([self.dwebp, "-bmp", "-o", "-", "--", "-"], stdin=PIPE, stdout=PIPE, stderr=PIPE, cwd=os.getcwd())
+			stdout, stderr = proc.communicate(webpfile)
 			if stdout:
 				self.convertpng(basepath, stdout)
 			else:
 				# This will handled using stderr info.
 				pass
 		else:
-			proc = Popen([self.dwebp, basepath + ".webp", "-o", basepath + ".png"], stdout=PIPE, stderr=PIPE, cwd=os.getcwd())
-			stdout, stderr = proc.communicate()
-		tryremove(basepath + ".webp")
+			proc = Popen([self.dwebp, "-o", basepath + ".png", "--", "-"], stdin=PIPE, stdout=PIPE, stderr=PIPE, cwd=os.getcwd())
+			stdout, stderr = proc.communicate(webpfile)
+		#tryremove(basepath + ".webp")
 		if stderr:
 			stderr = stderr.decode(errors='ignore')
 		return (proc.returncode, stderr)
@@ -775,23 +883,23 @@ class DwebpPILMan:
 	      So, don't use it for a large number of images.
 	      If you can fix it, contact the __author__.
 	"""
-	def __init__(self, process, quality=92):
+	def __init__(self, process=1, quality=92):
 		self.quality = quality
 		self.supportwebp = True
 		self.fail = False
-		self.pool = threadpool.NoOrderedRequestManager(process,self.decodewebp,self.checklog,self.handle_thread_exception)
+		self.pool = threadpool.NoOrderedRequestManager(process, self.decodewebp, self.checklog, self.handle_thread_exception, q_size=10)
 
-	def add(self, basepath, displayname):
-		self.pool.putRequest(basepath, displayname)
+	def add(self, basepath, webpfile, displayname):
+		self.pool.putRequest(basepath, webpfile, displayname)
 
 	def wait(self):
 		self.pool.wait()
 
 	def checklog(self, request, result):
 		if result:
-			logging.info("完成转换 %s", request.args[1])
+			logging.info("完成转换 %s", request.args[2])
 		else:
-			logging.error("解码错误: %s", request.args[1])
+			logging.error("解码错误: %s", request.args[2])
 
 	def handle_thread_exception(self, request, exc_info):
 		"""Logging exception handler callback function."""
@@ -799,13 +907,13 @@ class DwebpPILMan:
 		logging.getLogger().error(str(request))
 		traceback.print_exception(*exc_info, file=logstr)
 
-	def decodewebp(self, basepath, displayname):
+	def decodewebp(self, basepath, webpfile, displayname):
 		try:
-			im = Image.open(basepath + ".webp")
+			im = Image.open(BytesIO(webpfile))
 			im.save(basepath + '.jpg', quality=self.quality)
 			im.close()
 			del im
-			tryremove(basepath + ".webp")
+			#tryremove(basepath + ".webp")
 			return True
 		except Exception as ex:
 			if 'image' in repr(ex):
@@ -822,13 +930,13 @@ class DwebpSingleThreadPILMan:
 	Note: This also suffers from the memory leak caused by a webp handling
 	      bug in Pillow.
 	"""
-	def __init__(self, process, quality=92):
+	def __init__(self, process=1, quality=92):
 		self.quality = quality
 		self.supportwebp = True
 		self.fail = False
 
-	def add(self, basepath, displayname):
-		result = self.decodewebp(basepath, displayname)
+	def add(self, basepath, webpfile, displayname):
+		result = self.decodewebp(basepath, webpfile, displayname)
 		if not result:
 			self.fail = True
 			logging.error("解码错误: %s", displayname)
@@ -838,13 +946,13 @@ class DwebpSingleThreadPILMan:
 	def wait(self):
 		pass
 
-	def decodewebp(self, basepath, displayname):
+	def decodewebp(self, basepath, webpfile, displayname):
 		try:
-			im = Image.open(basepath + ".webp")
+			im = Image.open(BytesIO(webpfile))
 			im.save(basepath + '.jpg', quality=self.quality)
 			im.close()
 			del im
-			tryremove(basepath + ".webp")
+			#tryremove(basepath + ".webp")
 			return True
 		except Exception as ex:
 			if 'image' in repr(ex):
@@ -908,7 +1016,7 @@ def main():
 	logging.debug(repr(args))
 
 	programdir = os.path.dirname(os.path.abspath(sys.argv[0]))
-	fn_buka = args.input
+	fn_buka = args.input.rstrip('\\/')
 	if args.output:
 		target = args.output
 	elif args.current_dir:
@@ -962,7 +1070,7 @@ def main():
 		elif os.path.isdir(fn_buka):
 			logging.info('正在复制...')
 			copytree(fn_buka, target)
-			dm = DirMan(target, dwebpman, dbdict)
+			dm = DirMan(target, dwebpman, fn_buka, dbdict)
 			dm.detectndecode()
 			if dwebpman.supportwebp:
 				logging.info("等待所有转换进程/线程...")
