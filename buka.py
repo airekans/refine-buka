@@ -277,6 +277,7 @@ class DirMan:
 	* self.comicdict - maintains the dictionary of known comic entries.
 	* self.dwebpman - puts decode requests
 	'''
+
 	def __init__(self, dirpath, dwebpman=None, origpath=None, comicdict={}):
 		self.dirpath = dirpath.rstrip('\\/')
 		self.origpath = (origpath or dirpath).rstrip('\\/')
@@ -522,19 +523,26 @@ class DirMan:
 	def renamedirs(self):
 		'''Does the renaming.'''
 		ls = sorted(self.nodes.keys(), key=len, reverse=True)
+		newparentpath = self.dirpath
 		for i in ls:
 			this = self.nodes.get(i)
 			parent = self.nodes.get(i[:-1])
 			if this:
-				origpath = os.path.join(os.path.dirname(self.dirpath), *i)
+				newpath = origpath = os.path.join(os.path.dirname(self.dirpath), *i)
 				basepath = os.path.join(os.path.dirname(self.dirpath), *i[:-1])
 				if this[0] == 'comic':
-					movedir(origpath, os.path.join(basepath, this[1]))
+					newpath = os.path.join(basepath, this[1])
+					movedir(origpath, newpath)
 				elif parent:
 					if this[1] == parent[1]:
-						movedir(origpath, os.path.join(basepath, this[2]))
+						newpath = os.path.join(basepath, this[2])
+						movedir(origpath, newpath)
 				else:
-					movedir(origpath, os.path.join(basepath, this[1] + '-' + this[2]))
+					newpath = os.path.join(basepath, this[1] + '-' + this[2])
+					movedir(origpath, newpath)
+				if len(i) == 1:
+					newparentpath = newpath
+		return newparentpath
 
 def movedir(src, dst):
 	'''Avoid conflicts when moving into an exist directory.'''
@@ -604,15 +612,34 @@ def extractndecode(bukafile, path, dwebpman):
 		os.makedirs(path)
 	for key in bukafile.files:
 		if os.path.splitext(key)[1] == '.bup':
-			#with open(os.path.join(path, os.path.splitext(key)[0] + '.webp'), 'wb') as f:
-				#f.write(bukafile.getfile(key, 64))
-			dwebpman.add(os.path.join(path, os.path.splitext(key)[0]), bukafile.getfile(key, 64), os.path.join(os.path.basename(path), key))
+			imgfile = bukafile.getfile(key, 64)
+			trueformat = detectfile(imgfile, True)
+			basename = os.path.join(path, os.path.splitext(key)[0])
+			if trueformat == 'webp':
+				dwebpman.add(basename, imgfile, os.path.join(os.path.basename(path), key))
+			else:
+				with open('%s.%s' % (basename, trueformat), 'wb') as w:
+					w.write(imgfile)
+				logging.info('完成转换 ' + os.path.join(os.path.basename(path), key))
 		elif key == 'logo':
-			with open(os.path.join(path, key + '.jpg'), 'wb') as f:
-				f.write(bukafile[key])
+			imgfile = bukafile[key]
+			trueformat = detectfile(imgfile, True)
+			with open('%s.%s' % (os.path.join(path, key), trueformat), 'wb') as f:
+				f.write(imgfile)
 		else:
 			with open(os.path.join(path, key), 'wb') as f:
 				f.write(bukafile[key])
+
+def cleandir(dirpath):
+	'''
+	Remove non-image files.
+	'''
+	_imgfiletype = frozenset(('jpg', 'png', 'webp', 'gif'))
+	for root, subFolders, files in os.walk(dirpath):
+		for name in files:
+			filename = os.path.join(root, name)
+			if detectfile(filename) not in _imgfiletype:
+				tryremove(filename)
 
 def buildfromdb(dbname):
 	'''
@@ -695,31 +722,34 @@ def buildfromdb(dbname):
 	db.close()
 	return dict((k, ComicInfo(v, k)) for k,v in d.items())
 
-def detectfile(filename, force=False):
+def detectfile(fp, force=False):
 	'''
 	Tests file format.
+	If fp is str, treat it as a path;
+	If fp is bytes, treat it as a file;
+	Else, treat it as a file-like object;
 
 	Parts from standard library imghdr.
 	'''
-	if isinstance(filename, str):
-		if not os.path.exists(filename):
+	if isinstance(fp, str):
+		if not os.path.exists(fp):
 			return None
-		if os.path.isdir(filename):
+		if os.path.isdir(fp):
 			return 'dir'
-		if not os.path.isfile(filename):
+		if not os.path.isfile(fp):
 			return False
 		if not force:
-			if os.path.basename(filename) == 'index2.dat':
+			if os.path.basename(fp) == 'index2.dat':
 				return 'index2'
-			elif os.path.basename(filename) == 'chaporder.dat':
+			elif os.path.basename(fp) == 'chaporder.dat':
 				return 'chaporder'
-			ext = os.path.splitext(filename)[1]
+			ext = os.path.splitext(fp)[1]
 			if ext == '.buka':
 				return 'buka'
 			elif ext == '.bup':
 				return 'bup'
 			elif ext == '.view':
-				ext2 = os.path.splitext(os.path.splitext(filename)[0])[1]
+				ext2 = os.path.splitext(os.path.splitext(fp)[0])[1]
 				if ext2 == '.jpg':
 					return 'jpg'
 				elif ext2 == '.bup':
@@ -728,12 +758,12 @@ def detectfile(filename, force=False):
 					return 'png'
 			elif ext == '.tmp':
 				return 'tmp'
-		with open(filename, 'rb') as f:
+		with open(fp, 'rb') as f:
 			h = f.read(32)
-	elif isinstance(filename, bytes):
-		h = filename[:32]
+	elif isinstance(fp, bytes):
+		h = fp[:32]
 	else:
-		h = filename.peek(32)
+		h = fp.peek(32)
 	if h[6:10] in (b'JFIF', b'Exif'):
 		return 'jpg'
 	elif h[:4] == b"bup\x00":
@@ -771,15 +801,28 @@ def fileinfo(path):
 		rv.append('Introduction: %s' % ci.chaporder.get('intro'))
 		return '\n'.join(rv)
 	elif ftype == 'bup':
-		return path + ':\n Buka bup image wrapper file'
+		rv = path + ':\n Buka bup image wrapper file, with '
+		with open(path, 'rb') as f:
+			f.seek(64)
+			buptype = detectfile(f)
+		if buptype == 'jpg':
+			return rv + 'JPEG image file'
+		elif buptype == 'webp':
+			return rv + 'WebP image file'
+		elif buptype == 'png':
+			return rv + 'PNG image file'
+		elif buptype == 'gif':
+			return rv + 'GIF image file'
+		else:
+			return rv + 'unknown file'
 	elif ftype == 'jpg':
 		return path + ':\n JPEG image file'
+	elif ftype == 'webp':
+		return path + ':\n WebP image file'
 	elif ftype == 'png':
 		return path + ':\n PNG image file'
 	elif ftype == 'gif':
 		return path + ':\n GIF image file'
-	elif ftype == 'webp':
-		return path + ':\n WebP image file'
 	elif ftype == 'tmp':
 		return path + ':\n Buka download temporary file'
 	elif ftype == 'sqlite3':
@@ -792,6 +835,7 @@ def fileinfo(path):
 		rv.append('Comic Name: %s' % bf.comicname)
 		rv.append('Chapter ID: %s' % bf.chapid)
 		if bf.chapinfo:
+			rv[0] += ', with chaporder.dat'
 			rv.append('Chapter Name: %s' % bf.chapinfo.renamef(bf.chapid))
 			rv.append('Author: %s' % bf.chapinfo.chaporder.get('author'))
 			rv.append('Introduction: %s' % bf.chapinfo.chaporder.get('intro'))
@@ -1074,9 +1118,9 @@ def main():
 	except NotImplementedError:
 		cpus = 1
 
-	logging.info('%s version %s' % (os.path.basename(sys.argv[0]), __version__))
 	parser = ArgumentParserWait(description="Converts comics downloaded by Buka.")
 	parser.add_argument("-i", "--info", action='store_true', help="Only show file/folder information.")
+	parser.add_argument("-e", "--clean", action='store_true', help="Delete non-image files.")
 	parser.add_argument("-p", "--process", help="The max number of running dwebp's. (Default = CPU count)", default=cpus, type=int, metavar='NUM')
 	# parser.add_argument("-s", "--same-dir", action='store_true', help="Change the default output dir to <input>/../output. Ignored when specifies <output>")
 	parser.add_argument("-c", "--current-dir", action='store_true', help="Change the default output dir to ./output. Ignored when specifies <output>")
@@ -1090,6 +1134,8 @@ def main():
 	parser.add_argument("input", help="The .buka file or the folder containing files downloaded by Buka, which is usually located in (Android) /sdcard/ibuka/down")
 	parser.add_argument("output", nargs='?', help="The output folder. (Default = ./output)", default=None)
 	args = parser.parse_args()
+	if not args.info:
+		logging.info('%s version %s' % (os.path.basename(sys.argv[0]), __version__))
 	if args.debug:
 		for hdlr in logging.getLogger().handlers:
 			hdlr.setLevel(logging.DEBUG)
@@ -1144,12 +1190,18 @@ def main():
 			extractndecode(buka, target, dwebpman)
 			if dwebpman.supportwebp:
 				dwebpman.wait()
+			if args.clean:
+				cleandir(target)
+			newpath = target
 			if buka.chapinfo:
-				movedir(target, os.path.join(os.path.dirname(target), "%s-%s" % (buka.comicname, buka.chapinfo.renamef(buka.chapid))))
+				newpath = os.path.join(os.path.dirname(target), "%s-%s" % (buka.comicname, buka.chapinfo.renamef(buka.chapid)))
 			else:
 				# cannot get chapter name
-				movedir(target, os.path.join(os.path.dirname(target), "%s-%s" % (buka.comicname, buka.chapid)))
+				newpath = os.path.join(os.path.dirname(target), "%s-%s" % (buka.comicname, buka.chapid))
 			buka.close()
+			if newpath != target:
+				movedir(target, newpath)
+				logging.info("输出至 " + newpath)
 		elif os.path.isdir(fn_buka):
 			logging.info('正在复制...')
 			copytree(fn_buka, target)
@@ -1160,7 +1212,11 @@ def main():
 				dwebpman.wait()
 			logging.info("完成转换。")
 			logging.info("正在重命名...")
-			dm.renamedirs()
+			if args.clean:
+				cleandir(target)
+			newpath = dm.renamedirs()
+			if newpath != target:
+				logging.info("输出至 " + newpath)
 		else:
 			logging.critical("输入必须为 buka 文件或一个文件夹。")
 			if not os.listdir(target):
