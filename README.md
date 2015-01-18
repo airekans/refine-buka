@@ -9,10 +9,11 @@ _Scroll down for English documentation._
 
 ## 版本历史
 ### 2.5 版本
-* 修正重命名问题
+* 修正重命名问题，提示最终输出文件夹
 * 无转换中间过程 WebP 结果输出，加快速度
 * 限制队列数目，避免内存占用过大
 * 增加仅探测文件/文件夹功能 --info
+* 增加删除非图像文件选项 --clean
 
 ### 2.4 版本
 * 支持包装了 JPG 的新 .bup 文件
@@ -57,7 +58,7 @@ _Scroll down for English documentation._
 **Windows 发行版**：直接将待转换文件/文件夹拖入软件图标即可，**不要**直接双击运行。在命令行环境将以下所有 `[python3] buka.py` 替换为 `buka.exe`。
 
 ```
-用法: buka.py [-h] [-i] [-p NUM] [-c] [-l] [-n] [--pil] [--dwebp DWEBP]
+用法: buka.py [-h] [-i] [-e] [-p NUM] [-c] [-l] [-n] [--pil] [--dwebp DWEBP]
                [-q NUM] [-d buka_store.sql]
                input [output]
 
@@ -71,6 +72,7 @@ _Scroll down for English documentation._
 可选参数:
   -h, --help            显示帮助信息并退出
   -i, --info            仅显示指定文件 (夹) 信息
+  -e, --clean           删除非图像文件
   -p NUM, --process NUM
                         dwebp 的最大进程数 / PIL 解码的最大线程数
                         (默认 = CPU 核心数)
@@ -123,7 +125,7 @@ Python 3 only.
 
 python3 buka.py -h
 ```
-usage: buka.py [-h] [-i] [-p NUM] [-c] [-l] [-n] [--pil] [--dwebp DWEBP]
+usage: buka.py [-h] [-i] [-e] [-p NUM] [-c] [-l] [-n] [--pil] [--dwebp DWEBP]
                [-q NUM] [-d buka_store.sql]
                input [output]
 
@@ -138,6 +140,7 @@ positional arguments:
 optional arguments:
   -h, --help            show this help message and exit
   -i, --info            Only show file/folder information.
+  -e, --clean           Delete non-image files.
   -p NUM, --process NUM
                         The max number of running dwebp's. (Default = CPU
                         count)
