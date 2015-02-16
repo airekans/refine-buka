@@ -1088,7 +1088,7 @@ class DwebpSingleThreadPILMan:
 
 def downloader(comicid, chapid, path='.'):
 	"""
-	Experimental Buka doownloader.
+	Experimental Buka downloader.
 	Supports buka file only.
 
 	Current findings are listed as follow:
@@ -1120,12 +1120,12 @@ def downloader(comicid, chapid, path='.'):
 		'Connection': 'Keep-Alive',
 	}
 	for obj in downlist:
-		print(downlist)
-		if int(obj["urltype"]) == 1:
+		#print(downlist)
+		#if int(obj["urltype"]) == 1:
 			# It seems that we need to parse index2.dat to get download url.
 			# Download index2.dat from this url:
-			raise NotImplementedError('directory type with url: ' + obj["url"])
-		elif int(obj["urltype"]) == 2:
+			#raise NotImplementedError('directory type with url: ' + obj["url"])
+		if int(obj["urltype"]) == 2:
 			url = obj["url"]
 			defaultheader['refer'] = url
 			defaultheader['Host'] = urllib.parse.urlsplit(url)[1]
