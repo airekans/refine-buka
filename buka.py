@@ -245,10 +245,10 @@ class ComicInfo:
 			if self.chap[cid]['title']:
 				return self.chap[cid]['title']
 			else:
-				if self.chap[cid]['type'] == '1':
-					return '第' + self.chap[cid]['idx'].zfill(2) + '卷'
-				elif self.chap[cid]['type'] == '0':
+				if self.chap[cid]['type'] == '0':
 					return '第' + self.chap[cid]['idx'].zfill(3) + '话'
+				elif self.chap[cid]['type'] == '1':
+					return '第' + self.chap[cid]['idx'].zfill(2) + '卷'
 				elif self.chap[cid]['type'] == '2':
 					return '番外' + self.chap[cid]['idx'].zfill(2)
 				else:
@@ -701,9 +701,9 @@ def buildfromdb(dbname):
 		if lst[3]:
 			comictitle = ''
 			if lst[3][-1] == '卷':
-				comictype = '0'
-			elif lst[3][-1] == '话':
 				comictype = '1'
+			elif lst[3][-1] == '话':
+				comictype = '0'
 			else:
 				comictype = '2'
 				comictitle = lst[3]
