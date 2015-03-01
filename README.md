@@ -49,7 +49,9 @@ _Scroll down for English documentation._
 
 可通过 `import buka` 来进行研究和扩展功能。
 
-如果有 Pillow (PIL) 模块，可直接解码成 jpg。见以下**问题**部分。
+如果有 Pillow (PIL) 模块，加 `--pil` 参数可更快速地解码。
+
+**注意：**请使用[最新版本](https://github.com/python-pillow/Pillow)的 Pillow，内存泄漏问题已在最新版中解决。
 
 ## 用法
 
@@ -96,7 +98,7 @@ _Scroll down for English documentation._
 然后就可以使用各种图片浏览器、漫画阅读器欣赏漫画。
 
 ## 问题
-（历史遗留的内存泄漏问题已基本解决）
+请使用最新版 Pillow，否则在解码 WebP 时有内存泄漏问题。
 
 ## 授权
 
@@ -115,7 +117,9 @@ Support various formats of Buka (including .buka, .jpg.view, .bup.view). It save
 ## 2.x Version
 You can `import buka` to extend its functions.
 
-If Pillow library is installed, it can decode directly into JPG files.
+If the latest Pillow library is installed, use `--pil` for faster decoding.
+
+**Note** that the [latest version](https://github.com/python-pillow/Pillow) of Pillow has fixed the memory leak of the WebP decoder. Please use `--pil` to enable it.
 
 ## Usage
 
@@ -165,7 +169,7 @@ This `output` directory may be renamed to a more suitable name.
 After several minutes, you can use your favorate image viewer to enjoy the comics.
 
 ## Known Issues
-Workaround methods are used to solve the memory leak problem of the Pillow WebP decoder.
+Workaround methods are used to solve the memory leak problem of the (previous or stable version) Pillow WebP decoder.
 
 ## License
 The MIT License
