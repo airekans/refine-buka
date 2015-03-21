@@ -901,7 +901,6 @@ class DwebpMan:
 		'''
 		self.pilconvert = pilconvert
 		self.quality = quality
-		self.usefilter = usefilter
 		programdir = os.path.dirname(os.path.abspath(sys.argv[0]))
 		self.fail = False
 		if '64' in platform.machine():
@@ -1010,7 +1009,6 @@ class DwebpPILMan:
 	"""
 	def __init__(self, process=1, quality=92):
 		self.quality = quality
-		self.usefilter = usefilter
 		self.supportwebp = True
 		self.fail = False
 		self.pool = threadpool.NoOrderedRequestManager(process, self.decodewebp, self.checklog, self.handle_thread_exception, q_size=10)
@@ -1058,7 +1056,6 @@ class DwebpSingleThreadPILMan:
 	"""
 	def __init__(self, process=1, quality=92):
 		self.quality = quality
-		self.usefilter = usefilter
 		self.supportwebp = True
 		self.fail = False
 
