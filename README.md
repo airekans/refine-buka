@@ -61,7 +61,7 @@ _Scroll down for English documentation._
 
 ```
 用法: buka.py [-h] [-i] [-e] [-p NUM] [-c] [-l] [-n] [--pil] [--dwebp DWEBP]
-               [-q NUM] [-d buka_store.sql]
+               [-q NUM|png] [-d buka_store.sql]
                input [output]
 
 转换布卡漫画下载的漫画文件。
@@ -82,11 +82,11 @@ _Scroll down for English documentation._
                         当指定 <output> 时忽略
   -l, --log             强制保存错误日志
   -n, --keepwebp        保留 WebP 格式图片，不转换
-  --pil                 PIL/Pillow 解码优先，速度更快，但可能导致
-                        内存泄漏。(Windows 编译发行版本不可用)
+  --pil                 PIL/Pillow 解码优先，速度更快
   --dwebp DWEBP         指定 dwebp 解码器位置
-  -q NUM, --quality NUM
-                        JPG 质量 (默认 = 92)
+  -q NUM|png, --quality NUM|png
+                        JPG 质量，或指定 'png' 产生 PNG 无损输出
+                        (默认 = 92)
   -d buka_store.sql, --db buka_store.sql
                         指定 iOS 设备中 buka_store.sql 文件位置
                         此文件提供了额外的重命名信息
@@ -128,9 +128,10 @@ Python 3 only.
 **Windows Release**: Drag and drop the file or folder onto the icon. *Don't* directly double-click run. Replace all `[python3] buka.py` commands below with `buka.exe`.
 
 python3 buka.py -h
+
 ```
 usage: buka.py [-h] [-i] [-e] [-p NUM] [-c] [-l] [-n] [--pil] [--dwebp DWEBP]
-               [-q NUM] [-d buka_store.sql]
+               [-q NUM|png] [-d buka_store.sql]
                input [output]
 
 Converts comics downloaded by Buka.
@@ -152,11 +153,11 @@ optional arguments:
                         when specifies <output>
   -l, --log             Force logging to file.
   -n, --keepwebp        Keep WebP, don't convert them.
-  --pil                 Perfer PIL/Pillow for decoding, faster, and may cause
-                        memory leaks.
+  --pil                 Perfer PIL/Pillow for decoding, faster.
   --dwebp DWEBP         Locate your own dwebp WebP decoder.
-  -q NUM, --quality NUM
-                        JPG quality. (Default = 92)
+  -q NUM|png, --quality NUM|png
+                        JPG quality, or 'png' for PNG loseless output.
+                        (Default = 92)
   -d buka_store.sql, --db buka_store.sql
                         Locate the 'buka_store.sql' file in iOS devices, which
                         provides infomation for renaming.

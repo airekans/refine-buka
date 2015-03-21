@@ -46,8 +46,11 @@ try:
 	from PIL import Image
 	import PIL.WebPImagePlugin
 	SUPPORTPIL = True
+	# release 2.8.0 fixed webp decode memory leak
+	PILFIXED = tuple(map(int, (Image.PILLOW_VERSION.split(".")[:2]))) > (2, 7)
 except ImportError:
 	SUPPORTPIL = False
+	PILFIXED = False
 
 NT_SLEEP_SEC = 7
 logstr = StringIO()
@@ -898,6 +901,7 @@ class DwebpMan:
 		'''
 		self.pilconvert = pilconvert
 		self.quality = quality
+		self.usefilter = usefilter
 		programdir = os.path.dirname(os.path.abspath(sys.argv[0]))
 		self.fail = False
 		if '64' in platform.machine():
@@ -970,7 +974,8 @@ class DwebpMan:
 	def handle_thread_exception(self, request, exc_info):
 		"""Logging exception handler callback function."""
 		self.fail = True
-		logging.getLogger().error(str(request))
+		# avoid dumping whole webp binary
+		logging.getLogger().error("<WorkRequest id=%s args[0]=%r kwargs=%r exception=%s>" % (request.requestID, request.args[0], request.kwds, request.exception))
 		traceback.print_exception(*exc_info, file=logstr)
 
 	def decodewebp(self, basepath, webpfile, displayname):
@@ -992,23 +997,20 @@ class DwebpMan:
 
 	def convertpng(self, basepath, imgdata):
 		im = Image.open(BytesIO(imgdata))
-		im.save(basepath + '.jpg', quality=self.quality)
+		if self.quality == 'png':
+			im.save(basepath + '.png')
+		else:
+			im.save(basepath + '.jpg', quality=self.quality)
 		im.close()
 		del im
 
 class DwebpPILMan:
 	"""
 	Use threads of PIL.Image instead of dwebp to decode webps.
-
-	Note: For now, this class is available for decoding, and the it's faster.
-	      BUT, use this for decoding hundreds of images will cause CPython
-	      memory leaks. gc / del / close() don't work. Using multiprocessing
-	      is a waste though. This is caused by a webp handling bug in Pillow.
-	      So, don't use it for a large number of images.
-	      If you can fix it, contact the __author__.
 	"""
 	def __init__(self, process=1, quality=92):
 		self.quality = quality
+		self.usefilter = usefilter
 		self.supportwebp = True
 		self.fail = False
 		self.pool = threadpool.NoOrderedRequestManager(process, self.decodewebp, self.checklog, self.handle_thread_exception, q_size=10)
@@ -1028,13 +1030,16 @@ class DwebpPILMan:
 	def handle_thread_exception(self, request, exc_info):
 		"""Logging exception handler callback function."""
 		self.fail = True
-		logging.getLogger().error(str(request))
+		logging.getLogger().error("<WorkRequest id=%s args[0]=%r kwargs=%r exception=%s>" % (request.requestID, request.args[0], request.kwds, request.exception))
 		traceback.print_exception(*exc_info, file=logstr)
 
 	def decodewebp(self, basepath, webpfile, displayname):
 		try:
 			im = Image.open(BytesIO(webpfile))
-			im.save(basepath + '.jpg', quality=self.quality)
+			if self.quality == 'png':
+				im.save(basepath + '.png')
+			else:
+				im.save(basepath + '.jpg', quality=self.quality)
 			im.close()
 			del im
 			#tryremove(basepath + ".webp")
@@ -1050,12 +1055,10 @@ class DwebpPILMan:
 class DwebpSingleThreadPILMan:
 	"""
 	Use PIL.Image instead of dwebp to decode webps, using the main thread.
-	
-	Note: This also suffers from the memory leak caused by a webp handling
-	      bug in Pillow.
 	"""
 	def __init__(self, process=1, quality=92):
 		self.quality = quality
+		self.usefilter = usefilter
 		self.supportwebp = True
 		self.fail = False
 
@@ -1073,7 +1076,10 @@ class DwebpSingleThreadPILMan:
 	def decodewebp(self, basepath, webpfile, displayname):
 		try:
 			im = Image.open(BytesIO(webpfile))
-			im.save(basepath + '.jpg', quality=self.quality)
+			if self.quality == 'png':
+				im.save(basepath + '.png')
+			else:
+				im.save(basepath + '.jpg', quality=self.quality)
 			im.close()
 			del im
 			#tryremove(basepath + ".webp")
@@ -1131,6 +1137,7 @@ def downloader(comicid, chapid, path='.'):
 			defaultheader['Host'] = urllib.parse.urlsplit(url)[1]
 			req = urllib.request.Request(url, headers=defaultheader)
 			shutil.copyfileobj(urllib.request.urlopen(req), open(path, 'wb'))
+			return url
 	return False
 
 def logexit(err=True, wait=True):
@@ -1174,9 +1181,9 @@ def main():
 	parser.add_argument("-c", "--current-dir", action='store_true', help="Change the default output dir to ./output. Ignored when specifies <output>")
 	parser.add_argument("-l", "--log", action='store_true', help="Force logging to file.")
 	parser.add_argument("-n", "--keepwebp", action='store_true', help="Keep WebP, don't convert them.")
-	parser.add_argument("--pil", action='store_true', help="Perfer PIL/Pillow for decoding, faster, and may cause memory leaks.")
+	parser.add_argument("--pil", action='store_true', help="Perfer PIL/Pillow for decoding, faster.")
 	parser.add_argument("--dwebp", help="Locate your own dwebp WebP decoder.", default=None)
-	parser.add_argument("-q", "--quality", help="JPG quality. (Default = 92)", default=92, type=int, metavar='NUM')
+	parser.add_argument("-q", "--quality", help="JPG quality, or 'png' for PNG loseless output. (Default = 92)", default=92, metavar='NUM|png')
 	parser.add_argument("-d", "--db", help="Locate the 'buka_store.sql' file in iOS devices, which provides infomation for renaming.", default=None, metavar='buka_store.sql')
 	parser.add_argument("--debug", action='store_true', help=argparse.SUPPRESS)
 	parser.add_argument("input", help="The .buka file or the folder containing files downloaded by Buka, which is usually located in (Android) /sdcard/ibuka/down")
@@ -1218,9 +1225,8 @@ def main():
 		dwebpman = DwebpMan(False, args.process, SUPPORTPIL, args.quality)
 	elif args.dwebp:
 		dwebpman = DwebpMan(args.dwebp, args.process, SUPPORTPIL, args.quality)
-	elif SUPPORTPIL and args.pil:
+	elif SUPPORTPIL and (args.pil or PILFIXED):
 		dwebpman = DwebpPILMan(args.process, args.quality)
-		# dwebpman = DwebpSingleThreadPILMan(args.process)
 	else:
 		dwebpman = DwebpMan(args.dwebp, args.process, SUPPORTPIL, args.quality)
 	logging.debug("dwebpman = %r" % dwebpman)
