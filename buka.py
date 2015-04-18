@@ -541,8 +541,11 @@ class DirMan:
 					if this[1] == parent[1]:
 						newpath = os.path.join(basepath, this[2])
 						movedir(origpath, newpath)
+					else:
+						newpath = os.path.join(basepath, '%s-%s' % (this[1], this[2]))
+						movedir(origpath, newpath)
 				else:
-					newpath = os.path.join(basepath, this[1] + '-' + this[2])
+					newpath = os.path.join(basepath, '%s-%s' % (this[1], this[2]))
 					movedir(origpath, newpath)
 				if len(i) == 1:
 					newparentpath = newpath
@@ -565,7 +568,7 @@ def delayedtry(fn, *args, **kwargs):
 			fn(*args, **kwargs)
 			break
 		except Exception as ex:
-			logging.debug("Try failed, trying... " + str(att+1))
+			logging.debug("Try failed, trying... %s" % (att+1))
 			if att == 9:
 				logging.error("文件操作失败超过重试次数。")
 				raise ex
@@ -583,7 +586,7 @@ def tryremove(filename):
 			os.remove(filename)
 			break
 		except PermissionError as ex:
-			logging.debug("Delete failed, trying... " + str(att+1))
+			logging.debug("Delete failed, trying... %s" % (att+1))
 			if att == 9:
 				logging.error("删除文件失败超过重试次数。")
 				raise ex
@@ -916,7 +919,7 @@ class DwebpMan:
 		elif dwebppath:
 			self.dwebp = dwebppath
 		elif os.name == 'nt' or sys.platform in ('win32', 'cygwin'):
-			self.dwebp = os.path.join(programdir, 'dwebp_' + bit + '.exe')
+			self.dwebp = os.path.join(programdir, 'dwebp_%s.exe' % bit)
 		elif sys.platform == 'darwin':
 			self.dwebp = os.path.join(programdir, 'dwebp_mac')
 		else:
