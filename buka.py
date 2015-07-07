@@ -324,7 +324,7 @@ class DirMan:
 			dtype = None
 			if 'chaporder.dat' in files:
 				filename = os.path.join(root, 'chaporder.dat')
-				chaporder = ComicInfo(json.load(open(filename, 'r')))
+				chaporder = ComicInfo(json.load(open(filename, 'r', encoding='utf-8')))
 				tempid = self.basename(root)
 				if tempid.isdigit():
 					tempid = int(tempid)
@@ -411,7 +411,7 @@ class DirMan:
 			#frombup = set()
 			if 'chaporder.dat' in files:
 				filename = os.path.join(root, 'chaporder.dat')
-				chaporder = ComicInfo(json.load(open(filename, 'r')))
+				chaporder = ComicInfo(json.load(open(filename, 'r', encoding='utf-8')))
 				logging.info(str(chaporder))
 				tempid = self.basename(root)
 				if tempid.isdigit():
