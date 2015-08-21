@@ -249,13 +249,13 @@ class ComicInfo:
 				return self.chap[cid]['title']
 			else:
 				if self.chap[cid]['type'] == '0':
-					return '第' + self.chap[cid]['idx'].zfill(3) + '话'
+					return '第' + str(self.chap[cid]['idx']).zfill(3) + '话'
 				elif self.chap[cid]['type'] == '1':
-					return '第' + self.chap[cid]['idx'].zfill(2) + '卷'
+					return '第' + str(self.chap[cid]['idx']).zfill(2) + '卷'
 				elif self.chap[cid]['type'] == '2':
-					return '番外' + self.chap[cid]['idx'].zfill(2)
+					return '番外' + str(self.chap[cid]['idx']).zfill(2)
 				else:
-					return self.chap[cid]['idx'].zfill(3)
+					return str(self.chap[cid]['idx']).zfill(3)
 		else:
 			return str(cid)
 
